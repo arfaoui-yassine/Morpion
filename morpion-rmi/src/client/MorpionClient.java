@@ -6,103 +6,63 @@ import java.rmi.registry.Registry;
 import java.util.Scanner;
 
 public class MorpionClient {
-    private static volatile boolean exiting = false;
-
     public static void main(String[] args) {
-        final String[] playerName = new String[1];
-        final MorpionInterface[] gameHolder = new MorpionInterface[1];
-        Scanner scanner = new Scanner(System.in);
-
-        try {
-            Registry registry = LocateRegistry.getRegistry("localhost", 1099);
-            gameHolder[0] = (MorpionInterface) registry.lookup("MorpionGame");
-
+        try (Scanner scanner = new Scanner(System.in)) {
             System.out.print("Enter your name: ");
-            playerName[0] = scanner.nextLine();
+            String playerName = scanner.nextLine();
 
-            // Register shutdown hook for Ctrl+C
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                exiting = true;
-                System.out.println("\nDisconnecting from server...");
-                try {
-                    if (playerName[0] != null && gameHolder[0] != null) {
-                        gameHolder[0].disconnectPlayer(playerName[0]);
-                    }
-                } catch (Exception e) {
-                    System.err.println("Error during disconnection: " + e.getMessage());
-                }
-            }));
+            Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+            MorpionInterface game = (MorpionInterface) registry.lookup("MorpionGame");
 
-            String status = gameHolder[0].registerPlayer(playerName[0]);
-            System.out.println(status.equals("WAIT") ? "Waiting for opponent..." : "You are Player O");
+            String status = game.registerPlayer(playerName);
+            System.out.println(status.equals("WAIT") ? "Waiting for opponent..." : "Connected as Player O");
 
             // Wait for game to start
-            while (!gameHolder[0].isGameReady() && !exiting) {
+            while (!game.isGameReady()) {
                 Thread.sleep(2000);
-                if (!gameHolder[0].isGameReady()) {
-                    System.out.println("Still waiting for opponent...");
-                }
+                System.out.println("Waiting for opponent...");
             }
 
-            if (exiting)
-                return;
-
-            String playerSymbol = gameHolder[0].getPlayerSymbol(playerName[0]);
+            String playerSymbol = game.getPlayerSymbol(playerName);
             System.out.println("Game started! You are Player " + playerSymbol);
 
-            boolean playAgain = true;
-            while (playAgain && !exiting) {
-                // Game loop
-                while (!gameHolder[0].isGameOver() && !exiting) {
-                    if (gameHolder[0].isPlayerTurn(playerName[0])) {
-                        System.out.println("\nCurrent board:");
-                        System.out.println(gameHolder[0].getCurrentBoard());
-                        System.out.println("Your turn (Player " + playerSymbol + ")");
-                        System.out.print("Enter row and column (0-2) separated by space: ");
+            while (!game.isGameOver()) {
+                System.out.println("\nCurrent board:");
+                System.out.println(game.getCurrentBoard());
 
-                        int row = scanner.nextInt();
-                        int col = scanner.nextInt();
-                        scanner.nextLine(); // Clear buffer
+                if (game.isPlayerTurn(playerName)) {
+                    System.out.print("Your turn (row[0-2] column[0-2]): ");
+                    int row = scanner.nextInt();
+                    int col = scanner.nextInt();
+                    scanner.nextLine(); // consume newline
 
-                        String result = gameHolder[0].makeMove(row, col, playerName[0]);
-                        if (!result.equals("VALID_MOVE")) {
-                            System.out.println("Invalid move! Try again.");
-                        }
-                    } else {
-                        System.out.println("\nWaiting for opponent's move...");
-                        Thread.sleep(2000);
+                    String result = game.makeMove(row, col, playerName);
+                    if (!result.equals("VALID_MOVE")) {
+                        System.out.println("Invalid move: " + result);
                     }
-                }
-
-                if (!exiting) {
-                    System.out.println("\nGAME OVER");
-                    System.out.println(gameHolder[0].getCurrentBoard());
-                    String winner = gameHolder[0].getWinner();
-                    System.out.println(winner.equals("Draw") ? "It's a draw!" : "Player " + winner + " wins!");
-
-                    System.out.print("Play again? (y/n): ");
-                    String choice = scanner.nextLine();
-                    if (choice.equalsIgnoreCase("y")) {
-                        gameHolder[0].resetGame();
-                        playerSymbol = gameHolder[0].getPlayerSymbol(playerName[0]);
-                        System.out.println("New game! You are now Player " + playerSymbol);
-                    } else {
-                        playAgain = false;
-                    }
+                } else {
+                    System.out.println("Waiting for opponent's move...");
+                    Thread.sleep(2000);
                 }
             }
+
+            // Game over
+            System.out.println("\nFinal board:");
+            System.out.println(game.getCurrentBoard());
+            String winner = game.getWinner();
+            System.out.println(winner.equals("Draw") ? "Game ended in a draw!" : "Player " + winner + " wins!");
+
+            System.out.print("Play again? (y/n): ");
+            if (scanner.nextLine().equalsIgnoreCase("y")) {
+                game.resetGame();
+                main(args); // Restart game
+            } else {
+                game.disconnectPlayer(playerName);
+            }
+
         } catch (Exception e) {
             System.err.println("Client error: " + e.getMessage());
             e.printStackTrace();
-        } finally {
-            try {
-                if (gameHolder[0] != null && playerName != null) {
-                    gameHolder[0].disconnectPlayer(playerName[0]);
-                }
-                scanner.close();
-            } catch (Exception e) {
-                System.err.println("Cleanup error: " + e.getMessage());
-            }
         }
     }
 }

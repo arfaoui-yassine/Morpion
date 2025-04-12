@@ -6,7 +6,7 @@ import java.rmi.RemoteException;
 public interface MorpionInterface extends Remote {
     String registerPlayer(String playerName) throws RemoteException;
 
-    String makeMove(int row, int col, String playerName) throws RemoteException;
+    String makeMove(int row, int col, String playerName) throws RemoteException; // Returns status message
 
     String getCurrentBoard() throws RemoteException;
 

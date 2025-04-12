@@ -1,10 +1,9 @@
 package client;
 
 import shared.MorpionInterface;
-
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
+
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 
@@ -13,8 +12,12 @@ public class MorpionClientGUI extends JFrame {
     private String playerName;
     private String playerSymbol;
     private JButton[][] buttons = new JButton[3][3];
-    private JLabel statusLabel = new JLabel("Connecting...");
-    private boolean myTurn = false;
+    private JLabel statusLabel;
+    private JPanel mainPanel;
+    private Color bgColor = new Color(240, 240, 240);
+    private Color buttonColor = new Color(255, 255, 255);
+    private Color xColor = new Color(44, 62, 80);
+    private Color oColor = new Color(231, 76, 60);
 
     public MorpionClientGUI() {
         setupGUI();
@@ -22,102 +25,123 @@ public class MorpionClientGUI extends JFrame {
     }
 
     private void setupGUI() {
-        setTitle("Morpion Game (RMI)");
-        setSize(300, 350);
+        setTitle("Tic-Tac-Toe (RMI)");
+        setSize(500, 600);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(new BorderLayout());
+        setLocationRelativeTo(null);
 
-        JPanel boardPanel = new JPanel(new GridLayout(3, 3));
-        Font font = new Font("Arial", Font.BOLD, 40);
+        mainPanel = new JPanel(new BorderLayout(10, 10));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        mainPanel.setBackground(bgColor);
+
+        // Status label
+        statusLabel = new JLabel("Connecting to server...", SwingConstants.CENTER);
+        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        statusLabel.setOpaque(true);
+        statusLabel.setBackground(new Color(52, 152, 219));
+        statusLabel.setForeground(Color.WHITE);
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // Game board
+        JPanel boardPanel = new JPanel(new GridLayout(3, 3, 10, 10));
+        boardPanel.setBackground(bgColor);
+        boardPanel.setBorder(BorderFactory.createEmptyBorder(20, 0, 20, 0));
+
+        Font buttonFont = new Font("Segoe UI", Font.BOLD, 60);
 
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
                 final int row = i, col = j;
-                buttons[i][j] = new JButton(" ");
-                buttons[i][j].setFont(font);
+                buttons[i][j] = new JButton();
+                buttons[i][j].setFont(buttonFont);
+                buttons[i][j].setBackground(buttonColor);
                 buttons[i][j].setFocusPainted(false);
-                buttons[i][j].addActionListener((ActionEvent e) -> handleMove(row, col));
+                buttons[i][j].addActionListener(e -> handleMove(row, col));
+                buttons[i][j].setBorder(BorderFactory.createLineBorder(new Color(189, 195, 199), 2));
                 boardPanel.add(buttons[i][j]);
             }
         }
 
-        add(statusLabel, BorderLayout.NORTH);
-        add(boardPanel, BorderLayout.CENTER);
+        mainPanel.add(statusLabel, BorderLayout.NORTH);
+        mainPanel.add(boardPanel, BorderLayout.CENTER);
+
+        add(mainPanel);
     }
 
     private void connectToServer() {
         try {
-            String name = JOptionPane.showInputDialog(this, "Enter your name:");
-            if (name == null || name.isEmpty())
-                return;
+            // Get player name with a modern input dialog
+            playerName = JOptionPane.showInputDialog(this,
+                    "Enter your name:",
+                    "Player Registration",
+                    JOptionPane.PLAIN_MESSAGE);
+
+            if (playerName == null || playerName.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Name cannot be empty. Exiting...");
+                System.exit(0);
+            }
 
             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
             game = (MorpionInterface) registry.lookup("MorpionGame");
 
-            this.playerName = name;
-            String status = game.registerPlayer(name);
-
-            if (status.equals("WAIT")) {
-                statusLabel.setText("Waiting for opponent...");
-            } else {
-                statusLabel.setText("You are Player O");
-            }
+            String status = game.registerPlayer(playerName);
+            updateStatus(status.equals("WAIT") ? "Waiting for opponent..." : "Connected as Player O");
 
             new Thread(this::gameLoop).start();
 
         } catch (Exception e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Error connecting to server.");
+            JOptionPane.showMessageDialog(this,
+                    "Failed to connect to server: " + e.getMessage(),
+                    "Connection Error",
+                    JOptionPane.ERROR_MESSAGE);
             System.exit(1);
         }
     }
 
     private void handleMove(int row, int col) {
-        if (!myTurn)
-            return;
         try {
             String result = game.makeMove(row, col, playerName);
-            if (!result.equals("VALID_MOVE")) {
-                JOptionPane.showMessageDialog(this, "Invalid move!");
+            if (result.equals("VALID_MOVE")) {
+                updateBoard();
+            } else {
+                showMessage(result);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            showMessage("Error: " + e.getMessage());
         }
     }
 
     private void gameLoop() {
         try {
+            // Wait for game to start
             while (!game.isGameReady()) {
                 Thread.sleep(1000);
             }
 
             playerSymbol = game.getPlayerSymbol(playerName);
-            statusLabel.setText("Game started! You are " + playerSymbol);
+            updateStatus("Game started! You are Player " + playerSymbol);
 
+            // Main game loop
             while (!game.isGameOver()) {
-                myTurn = game.isPlayerTurn(playerName);
-                if (myTurn) {
-                    statusLabel.setText("Your turn (" + playerSymbol + ")");
-                } else {
-                    statusLabel.setText("Waiting for opponent...");
-                }
-
-                String[][] board = getBoardMatrix(game.getCurrentBoard());
-                updateBoardButtons(board);
-
-                Thread.sleep(1000);
+                updateBoard();
+                Thread.sleep(500);
             }
 
-            updateBoardButtons(getBoardMatrix(game.getCurrentBoard()));
+            // Game over
+            updateBoard();
             String winner = game.getWinner();
             if (winner.equals("Draw")) {
-                JOptionPane.showMessageDialog(this, "It's a draw!");
+                showMessage("Game ended in a draw!");
             } else {
-                JOptionPane.showMessageDialog(this, "Player " + winner + " wins!");
+                showMessage("Player " + winner + " wins!");
             }
 
             // Ask to replay
-            int choice = JOptionPane.showConfirmDialog(this, "Play again?", "Game Over", JOptionPane.YES_NO_OPTION);
+            int choice = JOptionPane.showConfirmDialog(this,
+                    "Would you like to play again?",
+                    "Game Over",
+                    JOptionPane.YES_NO_OPTION);
+
             if (choice == JOptionPane.YES_OPTION) {
                 game.resetGame();
                 gameLoop();
@@ -127,36 +151,61 @@ public class MorpionClientGUI extends JFrame {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            showMessage("Game error: " + e.getMessage());
         }
     }
 
-    private void updateBoardButtons(String[][] board) {
+    private void updateBoard() throws Exception {
+        String boardState = game.getCurrentBoard();
+        String[] rows = boardState.split("\n");
+
         SwingUtilities.invokeLater(() -> {
             for (int i = 0; i < 3; i++) {
+                String[] cells = rows[i * 2].split("\\|");
                 for (int j = 0; j < 3; j++) {
-                    buttons[i][j].setText(board[i][j]);
+                    String cell = cells[j].trim();
+                    buttons[i][j].setText(cell);
+                    if (cell.equals("X")) {
+                        buttons[i][j].setForeground(xColor);
+                    } else if (cell.equals("O")) {
+                        buttons[i][j].setForeground(oColor);
+                    }
                 }
+            }
+
+            try {
+                if (game.isPlayerTurn(playerName)) {
+                    updateStatus("Your turn (Player " + playerSymbol + ")");
+                } else {
+                    updateStatus("Waiting for opponent...");
+                }
+            } catch (Exception e) {
+                updateStatus("Error: " + e.getMessage());
             }
         });
     }
 
-    private String[][] getBoardMatrix(String boardString) {
-        String[] lines = boardString.split("\n");
-        String[][] matrix = new String[3][3];
-        for (int i = 0; i < 3; i++) {
-            String[] cells = lines[i * 2].split("\\|");
-            for (int j = 0; j < 3; j++) {
-                matrix[i][j] = cells[j].trim();
-            }
-        }
-        return matrix;
+    private void updateStatus(String message) {
+        SwingUtilities.invokeLater(() -> {
+            statusLabel.setText(message);
+        });
+    }
+
+    private void showMessage(String message) {
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(this, message);
+        });
     }
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            MorpionClientGUI gui = new MorpionClientGUI();
-            gui.setVisible(true);
+            try {
+                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+                MorpionClientGUI gui = new MorpionClientGUI();
+                gui.setVisible(true);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         });
     }
 }

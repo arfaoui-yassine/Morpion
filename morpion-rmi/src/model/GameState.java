@@ -21,9 +21,7 @@ public class GameState {
                 board[i][j] = " ";
             }
         }
-        if (playerX != null && playerO != null) {
-            currentPlayer = "X"; // Ensure Player X always starts
-        }
+        currentPlayer = "X"; // Player X always starts
         gameOver = false;
         winner = null;
         updateActivity();
@@ -32,7 +30,6 @@ public class GameState {
     public synchronized String registerPlayer(String playerName) {
         if (playerX == null) {
             playerX = playerName;
-            currentPlayer = "X"; // Ensure Player X starts first
             updateActivity();
             return "WAIT";
         } else if (playerO == null) {
@@ -40,7 +37,7 @@ public class GameState {
             updateActivity();
             return "O";
         }
-        return null;
+        return "GAME_FULL";
     }
 
     public synchronized void disconnectPlayer(String playerName) {
@@ -52,20 +49,96 @@ public class GameState {
         if (playerX == null && playerO == null) {
             resetGame();
         }
+        updateActivity();
     }
 
     public synchronized boolean makeMove(int row, int col, String playerName) {
-        if (!isValidPlayerMove(playerName))
+        // Validate game state
+        if (gameOver)
             return false;
-        if (row < 0 || row > 2 || col < 0 || col > 2 || !board[row][col].equals(" ")) {
+        if (!isGameReady())
             return false;
-        }
 
+        // Validate player
+        if (!isValidPlayer(playerName))
+            return false;
+
+        // Validate turn
+        if (!isPlayerTurn(playerName))
+            return false;
+
+        // Validate move coordinates
+        if (row < 0 || row > 2 || col < 0 || col > 2)
+            return false;
+        if (!board[row][col].equals(" "))
+            return false;
+
+        // Execute move
         board[row][col] = currentPlayer;
         checkGameOver();
-        currentPlayer = currentPlayer.equals("X") ? "O" : "X";
+        if (!gameOver) {
+            currentPlayer = currentPlayer.equals("X") ? "O" : "X";
+        }
         updateActivity();
         return true;
+    }
+
+    private boolean isValidPlayer(String playerName) {
+        return playerName.equals(playerX) || playerName.equals(playerO);
+    }
+
+    private void checkGameOver() {
+        // Check rows
+        for (int i = 0; i < 3; i++) {
+            if (checkLine(board[i][0], board[i][1], board[i][2])) {
+                gameOver = true;
+                winner = board[i][0];
+                return;
+            }
+        }
+
+        // Check columns
+        for (int i = 0; i < 3; i++) {
+            if (checkLine(board[0][i], board[1][i], board[2][i])) {
+                gameOver = true;
+                winner = board[0][i];
+                return;
+            }
+        }
+
+        // Check diagonals
+        if (checkLine(board[0][0], board[1][1], board[2][2])) {
+            gameOver = true;
+            winner = board[0][0];
+            return;
+        }
+        if (checkLine(board[0][2], board[1][1], board[2][0])) {
+            gameOver = true;
+            winner = board[0][2];
+            return;
+        }
+
+        // Check for draw
+        boolean isDraw = true;
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                if (board[i][j].equals(" ")) {
+                    isDraw = false;
+                    break;
+                }
+            }
+            if (!isDraw)
+                break;
+        }
+
+        if (isDraw) {
+            gameOver = true;
+            winner = "DRAW";
+        }
+    }
+
+    private boolean checkLine(String a, String b, String c) {
+        return !a.equals(" ") && a.equals(b) && a.equals(c);
     }
 
     private void updateActivity() {
@@ -76,45 +149,21 @@ public class GameState {
         return (System.currentTimeMillis() - lastActivityTime) > TIMEOUT_MS;
     }
 
-    private boolean isValidPlayerMove(String playerName) {
-        return !gameOver &&
-                ((currentPlayer.equals("X") && playerName.equals(playerX))) ||
-                ((currentPlayer.equals("O") && playerName.equals(playerO)));
+    public synchronized boolean isPlayerTurn(String playerName) {
+        return (currentPlayer.equals("X") && playerName.equals(playerX)) ||
+                (currentPlayer.equals("O") && playerName.equals(playerO));
     }
 
-    private void checkGameOver() {
-        // Check rows and columns
-        for (int i = 0; i < 3; i++) {
-            if (checkLine(board[i][0], board[i][1], board[i][2]) ||
-                    checkLine(board[0][i], board[1][i], board[2][i])) {
-                return;
-            }
-        }
-        // Check diagonals
-        if (checkLine(board[0][0], board[1][1], board[2][2]) ||
-                checkLine(board[0][2], board[1][1], board[2][0])) {
-            return;
-        }
-        // Check draw
-        gameOver = true;
-        for (String[] row : board) {
-            for (String cell : row) {
-                if (cell.equals(" ")) {
-                    gameOver = false;
-                    return;
-                }
-            }
-        }
-        winner = "Draw";
+    public synchronized boolean isGameReady() {
+        return playerX != null && playerO != null;
     }
 
-    private boolean checkLine(String a, String b, String c) {
-        if (!a.equals(" ") && a.equals(b) && a.equals(c)) {
-            gameOver = true;
-            winner = a;
-            return true;
-        }
-        return false;
+    public synchronized boolean isGameOver() {
+        return gameOver;
+    }
+
+    public synchronized String getWinner() {
+        return winner;
     }
 
     public synchronized String getCurrentBoard() {
@@ -126,23 +175,6 @@ public class GameState {
                 sb.append("-----------\n");
         }
         return sb.toString();
-    }
-
-    public synchronized boolean isGameOver() {
-        return gameOver;
-    }
-
-    public synchronized String getWinner() {
-        return winner;
-    }
-
-    public synchronized boolean isPlayerTurn(String playerName) {
-        return ((currentPlayer.equals("X") && playerName.equals(playerX)) ||
-                (currentPlayer.equals("O") && playerName.equals(playerO)));
-    }
-
-    public synchronized boolean isGameReady() {
-        return playerX != null && playerO != null;
     }
 
     public synchronized String getPlayerSymbol(String playerName) {

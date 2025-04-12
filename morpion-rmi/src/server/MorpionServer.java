@@ -18,7 +18,7 @@ public class MorpionServer extends UnicastRemoteObject implements MorpionInterfa
     private void cleanupTask() {
         while (running) {
             try {
-                Thread.sleep(10000); // Check every 10 seconds
+                Thread.sleep(50000);
                 synchronized (gameState) {
                     if (gameState.checkTimeout()) {
                         System.out.println("Resetting inactive game...");
@@ -38,6 +38,13 @@ public class MorpionServer extends UnicastRemoteObject implements MorpionInterfa
 
     @Override
     public synchronized String makeMove(int row, int col, String playerName) throws RemoteException {
+        if (!gameState.isGameReady())
+            return "GAME_NOT_READY";
+        if (gameState.isGameOver())
+            return "GAME_OVER";
+        if (!gameState.isPlayerTurn(playerName))
+            return "NOT_YOUR_TURN";
+
         return gameState.makeMove(row, col, playerName) ? "VALID_MOVE" : "INVALID_MOVE";
     }
 

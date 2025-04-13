@@ -32,20 +32,27 @@ public class MorpionServer extends UnicastRemoteObject implements MorpionInterfa
     }
 
     @Override
-    public synchronized String registerPlayer(String playerName) throws RemoteException {
-        return gameState.registerPlayer(playerName);
+    public synchronized MorpionInterface.RegistrationStatus registerPlayer(String playerName) throws RemoteException {
+        String result = gameState.registerPlayer(playerName);
+        return switch (result) {
+            case "WAIT" -> RegistrationStatus.WAITING;
+            case "O" -> RegistrationStatus.PLAYER_O;
+            case "GAME_FULL" -> RegistrationStatus.GAME_FULL;
+            default -> RegistrationStatus.ERROR;
+        };
     }
 
     @Override
-    public synchronized String makeMove(int row, int col, String playerName) throws RemoteException {
+    public synchronized MorpionInterface.MoveStatus makeMove(int row, int col, String playerName)
+            throws RemoteException {
         if (!gameState.isGameReady())
-            return "GAME_NOT_READY";
+            return MoveStatus.GAME_NOT_READY;
         if (gameState.isGameOver())
-            return "GAME_OVER";
+            return MoveStatus.GAME_OVER;
         if (!gameState.isPlayerTurn(playerName))
-            return "NOT_YOUR_TURN";
+            return MoveStatus.NOT_YOUR_TURN;
 
-        return gameState.makeMove(row, col, playerName) ? "VALID_MOVE" : "INVALID_MOVE";
+        return gameState.makeMove(row, col, playerName) ? MoveStatus.VALID : MoveStatus.INVALID;
     }
 
     @Override
@@ -93,6 +100,11 @@ public class MorpionServer extends UnicastRemoteObject implements MorpionInterfa
             Registry registry = LocateRegistry.createRegistry(1099);
             registry.rebind("MorpionGame", new MorpionServer());
             System.out.println("Server ready. Waiting for players...");
+
+            // Add shutdown hook for clean termination
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.out.println("Shutting down server...");
+            }));
         } catch (Exception e) {
             System.err.println("Server exception: " + e.getMessage());
             e.printStackTrace();

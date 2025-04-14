@@ -184,4 +184,29 @@ public class GameState {
             return "O";
         return null;
     }
+
+    public synchronized int getPlayerCount() {
+        int count = 0;
+        if (playerX != null)
+            count++;
+        if (playerO != null)
+            count++;
+        return count;
+    }
+
+    public synchronized boolean isEmpty() {
+        return playerX == null && playerO == null;
+    }
+
+    /**
+     * Returns the other player's name or null if not found
+     */
+    public synchronized String getOtherPlayer(String playerName) {
+        if (playerName.equals(playerX)) {
+            return playerO;
+        } else if (playerName.equals(playerO)) {
+            return playerX;
+        }
+        return null;
+    }
 }

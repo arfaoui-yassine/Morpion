@@ -2,7 +2,6 @@ package client;
 
 import shared.MorpionInterface;
 import shared.MorpionInterface.MoveStatus;
-
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -18,17 +17,21 @@ public class MorpionClientGUI extends JFrame {
     private String playerSymbol;
     private JButton[][] buttons = new JButton[3][3];
     private JLabel statusLabel;
+    private JLabel playerLabel;
     private JPanel mainPanel;
     private ExecutorService executor = Executors.newFixedThreadPool(2);
     private String currentRoomId;
+    private boolean gameEnded = false;
 
     // Color scheme
-    private final Color bgColor = new Color(240, 240, 240);
+    private final Color bgColor = new Color(245, 245, 245);
     private final Color buttonColor = new Color(255, 255, 255);
     private final Color hoverColor = new Color(230, 230, 230);
     private final Color xColor = new Color(44, 62, 80);
     private final Color oColor = new Color(231, 76, 60);
-    private final Color statusColor = new Color(52, 152, 219);
+    private final Color yourTurnColor = new Color(46, 204, 113);
+    private final Color waitingColor = new Color(52, 152, 219);
+    private final Color gameOverColor = new Color(155, 89, 182);
     private final Color errorColor = new Color(231, 76, 60);
 
     public MorpionClientGUI() {
@@ -38,29 +41,40 @@ public class MorpionClientGUI extends JFrame {
 
     private void setupGUI() {
         setTitle("Tic-Tac-Toe (RMI)");
-        setSize(500, 600);
+        setSize(550, 650);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
+        setResizable(false);
 
         // Main panel
         mainPanel = new JPanel(new BorderLayout(10, 10));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         mainPanel.setBackground(bgColor);
 
-        // Status label
+        // Info panel
+        JPanel infoPanel = new JPanel(new GridLayout(2, 1, 0, 5));
+        infoPanel.setBackground(bgColor);
+
+        playerLabel = new JLabel("", SwingConstants.CENTER);
+        playerLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        playerLabel.setForeground(new Color(44, 62, 80));
+
         statusLabel = new JLabel("Connecting to server...", SwingConstants.CENTER);
-        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
         statusLabel.setOpaque(true);
-        statusLabel.setBackground(statusColor);
+        statusLabel.setBackground(waitingColor);
         statusLabel.setForeground(Color.WHITE);
         statusLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        infoPanel.add(playerLabel);
+        infoPanel.add(statusLabel);
 
         // Game board
         JPanel boardPanel = new JPanel(new GridLayout(3, 3, 10, 10));
         boardPanel.setBackground(bgColor);
         boardPanel.setBorder(BorderFactory.createEmptyBorder(20, 0, 20, 0));
 
-        Font buttonFont = new Font("Segoe UI", Font.BOLD, 60);
+        Font buttonFont = new Font("Segoe UI", Font.BOLD, 72);
 
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
@@ -85,7 +99,8 @@ public class MorpionClientGUI extends JFrame {
                 buttons[i][j].setFont(buttonFont);
                 buttons[i][j].setBackground(buttonColor);
                 buttons[i][j].setFocusPainted(false);
-                buttons[i][j].setBorder(BorderFactory.createLineBorder(new Color(189, 195, 199), 2));
+                buttons[i][j].setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(189, 195, 199)), null));
 
                 // Hover effects
                 buttons[i][j].addMouseListener(new MouseAdapter() {
@@ -107,17 +122,15 @@ public class MorpionClientGUI extends JFrame {
             }
         }
 
-        mainPanel.add(statusLabel, BorderLayout.NORTH);
+        mainPanel.add(infoPanel, BorderLayout.NORTH);
         mainPanel.add(boardPanel, BorderLayout.CENTER);
         add(mainPanel);
 
         // Handle window closing
         addWindowListener(new WindowAdapter() {
-
             public void windowClosing(WindowEvent e) {
                 shutdown();
             }
-
         });
     }
 
@@ -128,17 +141,38 @@ public class MorpionClientGUI extends JFrame {
                 Registry registry = LocateRegistry.getRegistry("localhost", 1099);
                 game = (MorpionInterface) registry.lookup("MorpionGame");
 
-                playerName = JOptionPane.showInputDialog("Enter your name:");
+                playerName = JOptionPane.showInputDialog(this,
+                        "Enter your name:",
+                        "Player Registration",
+                        JOptionPane.PLAIN_MESSAGE);
+
                 if (playerName == null || playerName.trim().isEmpty()) {
                     shutdown();
                     return;
                 }
 
-                // Ask: Create or Join Room?
-                Object[] options = { "Create Room", "Join Room", "Cancel" };
+                // Get available rooms first
+                List<String> availableRooms = game.listAvailableRooms();
+
+                // Create room selection dialog
+                Object[] options;
+                String message;
+                if (availableRooms.isEmpty()) {
+                    message = "<html><div style='text-align: center; width: 300px;'>" +
+                            "<b>No available rooms found</b><br>" +
+                            "Would you like to create a new room?</div></html>";
+                    options = new Object[] { "Create Room", "Cancel" };
+                } else {
+                    message = "<html><div style='text-align: center; width: 300px;'>" +
+                            "<b>Available Rooms:</b><br><br>" +
+                            String.join("<br>", availableRooms) +
+                            "<br><br>Join existing room or create new one?</div></html>";
+                    options = new Object[] { "Join Room", "Create Room", "Cancel" };
+                }
+
                 int choice = JOptionPane.showOptionDialog(
                         this,
-                        "Create a new room or join an existing one?",
+                        message,
                         "Room Selection",
                         JOptionPane.YES_NO_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE,
@@ -146,44 +180,49 @@ public class MorpionClientGUI extends JFrame {
                         options,
                         options[0]);
 
-                if (choice == 0) { // Create Room
-                    currentRoomId = game.createRoom(playerName);
-                    updateStatus("Room created! ID: " + currentRoomId + " - Waiting for opponent...");
-                } else if (choice == 1) { // Join Room
-                    List<String> availableRooms = game.listAvailableRooms();
+                if (choice == 0) { // First button (Join or Create)
                     if (availableRooms.isEmpty()) {
-                        showError("No rooms available. Create one instead.");
-                        shutdown();
-                        return;
+                        // Create room if none available
+                        currentRoomId = game.createRoom(playerName);
+                        updateStatus("Room created! ID: " + currentRoomId);
+                        playerLabel.setText("Player: " + playerName + " (Waiting for opponent)");
+                    } else {
+                        // Join selected room
+                        String selectedRoom = (String) JOptionPane.showInputDialog(
+                                this,
+                                "Select room to join:",
+                                "Join Room",
+                                JOptionPane.PLAIN_MESSAGE,
+                                null,
+                                availableRooms.toArray(),
+                                availableRooms.get(0));
+
+                        if (selectedRoom == null) {
+                            shutdown();
+                            return;
+                        }
+
+                        currentRoomId = selectedRoom.split(" ")[1];
+                        MorpionInterface.RoomStatus status = game.joinRoom(currentRoomId, playerName);
+                        if (status != MorpionInterface.RoomStatus.JOINED) {
+                            showError("Failed to join room: " + status);
+                            shutdown();
+                            return;
+                        }
+                        updateStatus("Joined room " + currentRoomId);
                     }
-                    String selectedRoom = (String) JOptionPane.showInputDialog(
-                            this,
-                            "Available Rooms:",
-                            "Join Room",
-                            JOptionPane.PLAIN_MESSAGE,
-                            null,
-                            availableRooms.toArray(),
-                            availableRooms.get(0));
-                    if (selectedRoom == null) {
-                        shutdown();
-                        return;
-                    }
-                    // Extract room ID (e.g., "Room A3F9B2 (Owner: Alice)" → "A3F9B2")
-                    currentRoomId = selectedRoom.split(" ")[1];
-                    MorpionInterface.RoomStatus status = game.joinRoom(currentRoomId, playerName);
-                    if (status != MorpionInterface.RoomStatus.JOINED) {
-                        showError("Failed to join room: " + status);
-                        shutdown();
-                        return;
-                    }
-                    updateStatus("Joined room " + currentRoomId);
+                } else if (choice == 1 && options.length > 2) { // Create Room when Join was first option
+                    currentRoomId = game.createRoom(playerName);
+                    updateStatus("Room created! ID: " + currentRoomId);
+                    playerLabel.setText("Player: " + playerName + " (Waiting for opponent)");
                 } else { // Cancel
                     shutdown();
                     return;
                 }
 
-                // Proceed with game loop
+                // Get player symbol and start game
                 playerSymbol = game.getPlayerSymbol(currentRoomId, playerName);
+                playerLabel.setText("Player: " + playerName + " (" + playerSymbol + ")");
                 gameLoop();
             } catch (Exception e) {
                 showError("Connection failed: " + e.getMessage());
@@ -193,10 +232,10 @@ public class MorpionClientGUI extends JFrame {
     }
 
     private void handleMove(int row, int col) {
-        if (!buttons[row][col].getText().isEmpty())
+        if (!buttons[row][col].getText().isEmpty() || gameEnded)
             return;
 
-        // Show optimistic update
+        // Optimistic UI update
         buttons[row][col].setText(playerSymbol);
         buttons[row][col].setEnabled(false);
 
@@ -210,13 +249,15 @@ public class MorpionClientGUI extends JFrame {
                         buttons[row][col].setText("");
                         buttons[row][col].setEnabled(true);
                     }
-                    updateBoard(); // Force refresh after move
+                    updateBoard();
                 });
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> {
                     buttons[row][col].setText("");
                     buttons[row][col].setEnabled(true);
-                    showError("Move failed: " + e.getMessage());
+                    if (!gameEnded) {
+                        showError("Move failed: " + e.getMessage());
+                    }
                 });
             }
         });
@@ -226,50 +267,70 @@ public class MorpionClientGUI extends JFrame {
         try {
             // Wait for game to start
             while (!game.isGameReady(currentRoomId)) {
-                updateBoard(); // Show waiting state
-                Thread.sleep(500);
+                updateBoard();
+                Thread.sleep(300);
             }
 
             // Main game loop
             while (!game.isGameOver(currentRoomId)) {
                 updateBoard();
-                Thread.sleep(500); // Reduced from 300ms for better responsiveness
+                Thread.sleep(300);
             }
 
-            updateBoard(); // Final update
-            showGameResult();
+            // Final update and show result
+            gameEnded = true;
+            updateBoard();
+            showFinalResult();
         } catch (Exception e) {
-            showError("Game error: " + e.getMessage());
-            shutdown();
+            if (!gameEnded && isDisplayable()) {
+                showError("Game error: " + e.getMessage());
+                shutdown();
+            }
         }
     }
 
     private void updateBoard() {
         SwingUtilities.invokeLater(() -> {
             try {
-                String boardState = game.getCurrentBoard(currentRoomId);
-                if (boardState == null)
+                if (!isDisplayable())
                     return;
-                // In updateBoard():
-                if (game.isPlayerTurn(currentRoomId, playerName)) {
+
+                String boardState = game.getCurrentBoard(currentRoomId);
+                if (boardState == null || boardState.isEmpty()) {
+                    if (!gameEnded) {
+                        showError("Game connection lost");
+                        shutdown();
+                    }
+                    return;
+                }
+
+                // Update status
+                if (game.isGameOver(currentRoomId)) {
+                    String winner = game.getWinner(currentRoomId);
+                    if (winner != null) {
+                        if (winner.equals("DRAW")) {
+                            statusLabel.setText("Game Over - It's a draw!");
+                        } else {
+                            statusLabel.setText("Game Over - " + winner + " wins!");
+                        }
+                    }
+                    statusLabel.setBackground(gameOverColor);
+                } else if (game.isPlayerTurn(currentRoomId, playerName)) {
                     statusLabel.setText("Your turn (Player " + playerSymbol + ")");
-                    statusLabel.setBackground(new Color(76, 175, 80)); // Green
+                    statusLabel.setBackground(yourTurnColor);
                 } else {
                     statusLabel.setText("Waiting for opponent...");
-                    statusLabel.setBackground(statusColor); // Original blue
+                    statusLabel.setBackground(waitingColor);
                 }
-                // Split by newline and ignore separator lines
+
+                // Update board
                 String[] rows = boardState.split("\n");
                 for (int i = 0; i < 3; i++) {
-                    // Skip separator lines (index 1, 3, etc.)
                     String rowData = rows[i * 2];
                     String[] cells = rowData.split("\\|");
-
                     for (int j = 0; j < 3; j++) {
                         String cell = cells[j].trim();
                         JButton btn = buttons[i][j];
-
-                        // Only update if different
                         if (!cell.equals(btn.getText())) {
                             btn.setText(cell.isEmpty() ? "" : cell);
                             btn.setEnabled(cell.isEmpty() && !game.isGameOver(currentRoomId));
@@ -277,29 +338,45 @@ public class MorpionClientGUI extends JFrame {
                     }
                 }
             } catch (Exception e) {
-                showError("Update error: " + e.getMessage());
+                if (!gameEnded && isDisplayable()) {
+                    showError("Update error: " + e.getMessage());
+                }
             }
         });
     }
 
-    private void showGameResult() {
+    private void showFinalResult() {
         try {
             String winner = game.getWinner(currentRoomId);
-            String message = winner.equals("DRAW")
-                    ? "Game ended in a draw!"
-                    : "Player " + winner + " wins!";
+            String message;
+            String title;
 
+            if (winner == null) {
+                message = "The game has ended";
+                title = "Game Over";
+            } else if (winner.equals("DRAW")) {
+                message = "<html><div style='text-align: center; width: 250px;'>" +
+                        "<b>Game ended in a draw!</b></div></html>";
+                title = "Draw!";
+            } else {
+                message = "<html><div style='text-align: center; width: 250px;'>" +
+                        "<b>Player " + winner + " wins!</b></div></html>";
+                title = "Game Over";
+            }
+
+            Object[] options = { "Play Again", "Quit" };
             int choice = JOptionPane.showOptionDialog(
                     this,
                     message,
-                    "Game Over",
+                    title,
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.INFORMATION_MESSAGE,
                     null,
-                    new Object[] { "Play Again", "Quit" },
-                    "Play Again");
+                    options,
+                    options[0]);
 
             if (choice == JOptionPane.YES_OPTION) {
+                gameEnded = false;
                 game.resetGame(currentRoomId);
                 resetUI();
                 gameLoop();
@@ -307,8 +384,10 @@ public class MorpionClientGUI extends JFrame {
                 shutdown();
             }
         } catch (Exception e) {
-            showError(e.getMessage());
-            shutdown();
+            if (isDisplayable()) {
+                showError("Error showing results: " + e.getMessage());
+                shutdown();
+            }
         }
     }
 
@@ -320,6 +399,7 @@ public class MorpionClientGUI extends JFrame {
             }
         }
         updateStatus("Game reset - waiting for opponent...");
+        statusLabel.setBackground(waitingColor);
     }
 
     private void updateStatus(String message) {
@@ -327,19 +407,25 @@ public class MorpionClientGUI extends JFrame {
     }
 
     private void showError(String message) {
-        JOptionPane.showMessageDialog(this, message, "Error", JOptionPane.ERROR_MESSAGE);
+        if (!gameEnded && isDisplayable()) {
+            JOptionPane.showMessageDialog(this,
+                    "<html><div style='text-align: center;'>" + message + "</div></html>",
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void shutdown() {
         try {
-            if (game != null) {
+            if (game != null && currentRoomId != null && !gameEnded) {
                 game.disconnectPlayer(currentRoomId, playerName);
             }
-            executor.shutdown();
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("Disconnect error: " + e.getMessage());
+        } finally {
+            executor.shutdown();
+            System.exit(0);
         }
-        System.exit(0);
     }
 
     public static void main(String[] args) {
@@ -349,7 +435,8 @@ public class MorpionClientGUI extends JFrame {
                 new MorpionClientGUI().setVisible(true);
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(null,
-                        "Failed to initialize UI: " + e.getMessage(),
+                        "<html><div style='text-align: center;'>" +
+                                "Failed to initialize UI:<br>" + e.getMessage() + "</div></html>",
                         "Startup Error",
                         JOptionPane.ERROR_MESSAGE);
             }

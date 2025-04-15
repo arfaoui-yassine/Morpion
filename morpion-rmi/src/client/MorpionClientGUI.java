@@ -5,6 +5,7 @@ import shared.MorpionInterface.MoveStatus;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.util.concurrent.ExecutorService;
@@ -22,6 +23,7 @@ public class MorpionClientGUI extends JFrame {
     private ExecutorService executor = Executors.newFixedThreadPool(2);
     private String currentRoomId;
     private boolean gameEnded = false;
+    private boolean finalResultShown = false;
 
     // Color scheme
     private final Color bgColor = new Color(245, 245, 245);
@@ -33,6 +35,7 @@ public class MorpionClientGUI extends JFrame {
     private final Color waitingColor = new Color(52, 152, 219);
     private final Color gameOverColor = new Color(155, 89, 182);
     private final Color errorColor = new Color(231, 76, 60);
+    private boolean opponentDisconnectedShown = false;
 
     public MorpionClientGUI() {
         setupGUI();
@@ -265,22 +268,23 @@ public class MorpionClientGUI extends JFrame {
 
     private void gameLoop() {
         try {
-            // Wait for game to start
-            while (!game.isGameReady(currentRoomId)) {
+            // Wait for the game to start (i.e. wait until a second player joins).
+            while (!game.isGameReady(currentRoomId) && !gameEnded) {
                 updateBoard();
                 Thread.sleep(300);
             }
 
-            // Main game loop
-            while (!game.isGameOver(currentRoomId)) {
+            // Main game loop during active play.
+            while (!game.isGameOver(currentRoomId) && !gameEnded) {
                 updateBoard();
                 Thread.sleep(300);
             }
 
-            // Final update and show result
-            gameEnded = true;
-            updateBoard();
-            showFinalResult();
+            // Once game over has been detected, mark gameEnded.
+            if (!gameEnded) {
+                gameEnded = true;
+                updateBoard();
+            }
         } catch (Exception e) {
             if (!gameEnded && isDisplayable()) {
                 showError("Game error: " + e.getMessage());
@@ -295,27 +299,28 @@ public class MorpionClientGUI extends JFrame {
                 if (!isDisplayable())
                     return;
 
-                String boardState = game.getCurrentBoard(currentRoomId);
-                if (boardState == null || boardState.isEmpty()) {
-                    if (!gameEnded) {
-                        showError("Game connection lost");
-                        shutdown();
+                // If the game has ended, update the final status.
+                if (game.isGameOver(currentRoomId)) {
+                    updateStatusForGameOver();
+                    if (!finalResultShown) {
+                        finalResultShown = true;
+                        SwingUtilities.invokeLater(this::showFinalResult);
                     }
                     return;
                 }
 
-                // Update status
-                if (game.isGameOver(currentRoomId)) {
-                    String winner = game.getWinner(currentRoomId);
-                    if (winner != null) {
-                        if (winner.equals("DRAW")) {
-                            statusLabel.setText("Game Over - It's a draw!");
-                        } else {
-                            statusLabel.setText("Game Over - " + winner + " wins!");
-                        }
-                    }
-                    statusLabel.setBackground(gameOverColor);
-                } else if (game.isPlayerTurn(currentRoomId, playerName)) {
+                String boardState = game.getCurrentBoard(currentRoomId);
+
+                // If boardState is empty while the game is in progress,
+                // treat it as a connection issue.
+                if (boardState == null || boardState.isEmpty()) {
+                    showError("Game connection lost");
+                    shutdown();
+                    return;
+                }
+
+                // Normal update: update status and board cells.
+                if (game.isPlayerTurn(currentRoomId, playerName)) {
                     statusLabel.setText("Your turn (Player " + playerSymbol + ")");
                     statusLabel.setBackground(yourTurnColor);
                 } else {
@@ -323,7 +328,6 @@ public class MorpionClientGUI extends JFrame {
                     statusLabel.setBackground(waitingColor);
                 }
 
-                // Update board
                 String[] rows = boardState.split("\n");
                 for (int i = 0; i < 3; i++) {
                     String rowData = rows[i * 2];
@@ -345,6 +349,24 @@ public class MorpionClientGUI extends JFrame {
         });
     }
 
+    // Helper method to update game-over status
+    private void updateStatusForGameOver() {
+        try {
+            String winner = game.getWinner(currentRoomId);
+            if (winner != null) {
+                if (winner.equals("DRAW")) {
+                    statusLabel.setText("Game Over - It's a draw!");
+                } else {
+                    statusLabel.setText("Game Over - " + winner + " wins!");
+                }
+            }
+            statusLabel.setBackground(gameOverColor);
+        } catch (Exception e) {
+            statusLabel.setText("Game Over");
+            statusLabel.setBackground(gameOverColor);
+        }
+    }
+
     private void showFinalResult() {
         try {
             String winner = game.getWinner(currentRoomId);
@@ -352,15 +374,14 @@ public class MorpionClientGUI extends JFrame {
             String title;
 
             if (winner == null) {
-                message = "The game has ended";
+                message = "The game has ended.";
                 title = "Game Over";
             } else if (winner.equals("DRAW")) {
-                message = "<html><div style='text-align: center; width: 250px;'>" +
-                        "<b>Game ended in a draw!</b></div></html>";
+                message = "<html><div style='text-align: center; width: 250px;'><b>Game ended in a draw!</b></div></html>";
                 title = "Draw!";
             } else {
-                message = "<html><div style='text-align: center; width: 250px;'>" +
-                        "<b>Player " + winner + " wins!</b></div></html>";
+                message = "<html><div style='text-align: center; width: 250px;'><b>Player " + winner
+                        + " wins!</b></div></html>";
                 title = "Game Over";
             }
 
@@ -376,10 +397,8 @@ public class MorpionClientGUI extends JFrame {
                     options[0]);
 
             if (choice == JOptionPane.YES_OPTION) {
-                gameEnded = false;
-                game.resetGame(currentRoomId);
-                resetUI();
-                gameLoop();
+                // Reset game state and let the client wait for a new opponent.
+                resetGameStateForWaiting();
             } else {
                 shutdown();
             }
@@ -389,6 +408,30 @@ public class MorpionClientGUI extends JFrame {
                 shutdown();
             }
         }
+    }
+
+    private void resetGameStateForWaiting() {
+        try {
+            // Reset the game on the server. This should clear the board
+            // and prepare the room for a new game.
+            game.resetGame(currentRoomId);
+        } catch (Exception e) {
+            showError("Failed to reset game: " + e.getMessage());
+            shutdown();
+            return;
+        }
+
+        // Reset UI elements.
+        resetUI();
+        updateStatus("Waiting for new opponent...");
+
+        // Clear state flags.
+        gameEnded = false;
+        finalResultShown = false;
+        opponentDisconnectedShown = false;
+
+        // Restart the game loop.
+        executor.execute(this::gameLoop);
     }
 
     private void resetUI() {

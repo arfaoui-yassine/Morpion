@@ -1,5 +1,11 @@
 package model;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+
 public class GameState {
     private String[][] board;
     private String currentPlayer;
@@ -8,7 +14,13 @@ public class GameState {
     private String playerX;
     private String playerO;
     private long lastActivityTime;
-    private static final long TIMEOUT_MS = 30000; // 30 seconds timeout
+    private static final long TIMEOUT_MS = 30000;
+
+    private Map<String, Integer> playerWins = new HashMap<>();
+    private Map<String, Integer> playerLosses = new HashMap<>();
+    private Map<String, Integer> playerDraws = new HashMap<>();
+    private List<String> matchHistory = new ArrayList<>();
+    private Random random = new Random();
 
     public GameState() {
         resetGame();
@@ -21,10 +33,18 @@ public class GameState {
                 board[i][j] = " ";
             }
         }
-        currentPlayer = "X"; // Player X always starts
+        currentPlayer = random.nextBoolean() ? "X" : "O";
         gameOver = false;
         winner = null;
         updateActivity();
+    }
+
+    public synchronized String getPlayerX() {
+        return playerX;
+    }
+
+    public synchronized String getPlayerO() {
+        return playerO;
     }
 
     public synchronized String registerPlayer(String playerName) {
@@ -35,7 +55,13 @@ public class GameState {
         } else if (playerO == null) {
             playerO = playerName;
             updateActivity();
-            return "O";
+            playerWins.putIfAbsent(playerX, 0);
+            playerWins.putIfAbsent(playerO, 0);
+            playerLosses.putIfAbsent(playerX, 0);
+            playerLosses.putIfAbsent(playerO, 0);
+            playerDraws.putIfAbsent(playerX, 0);
+            playerDraws.putIfAbsent(playerO, 0);
+            return currentPlayer.equals("X") ? "X" : "O";
         }
         return "GAME_FULL";
     }
@@ -46,41 +72,55 @@ public class GameState {
         } else if (playerName.equals(playerO)) {
             playerO = null;
         }
-        if (playerX == null && playerO == null) {
+        if (playerX == null || playerO == null) {
             resetGame();
         }
         updateActivity();
     }
 
     public synchronized boolean makeMove(int row, int col, String playerName) {
-        // Validate game state
-        if (gameOver)
+        if (gameOver || !isGameReady())
             return false;
-        if (!isGameReady())
+        if (!isValidPlayer(playerName) || !isPlayerTurn(playerName))
             return false;
-
-        // Validate player
-        if (!isValidPlayer(playerName))
+        if (row < 0 || row > 2 || col < 0 || col > 2 || !board[row][col].equals(" "))
             return false;
 
-        // Validate turn
-        if (!isPlayerTurn(playerName))
-            return false;
-
-        // Validate move coordinates
-        if (row < 0 || row > 2 || col < 0 || col > 2)
-            return false;
-        if (!board[row][col].equals(" "))
-            return false;
-
-        // Execute move
         board[row][col] = currentPlayer;
         checkGameOver();
+
         if (!gameOver) {
             currentPlayer = currentPlayer.equals("X") ? "O" : "X";
+        } else {
+            updatePlayerStats();
+            addToMatchHistory();
         }
+
         updateActivity();
         return true;
+    }
+
+    private void updatePlayerStats() {
+        if ("DRAW".equals(winner)) {
+            playerDraws.put(playerX, playerDraws.get(playerX) + 1);
+            playerDraws.put(playerO, playerDraws.get(playerO) + 1);
+        } else if (playerX.equals(winner)) {
+            playerWins.put(playerX, playerWins.get(playerX) + 1);
+            playerLosses.put(playerO, playerLosses.get(playerO) + 1);
+        } else {
+            playerWins.put(playerO, playerWins.get(playerO) + 1);
+            playerLosses.put(playerX, playerLosses.get(playerX) + 1);
+        }
+    }
+
+    private void addToMatchHistory() {
+        String result;
+        if ("DRAW".equals(winner)) {
+            result = "Draw between " + playerX + " and " + playerO;
+        } else {
+            result = winner + " won against " + (winner.equals(playerX) ? playerO : playerX);
+        }
+        matchHistory.add(result);
     }
 
     private boolean isValidPlayer(String playerName) {
@@ -92,7 +132,7 @@ public class GameState {
         for (int i = 0; i < 3; i++) {
             if (checkLine(board[i][0], board[i][1], board[i][2])) {
                 gameOver = true;
-                winner = board[i][0];
+                winner = getPlayerNameBySymbol(board[i][0]);
                 return;
             }
         }
@@ -101,7 +141,7 @@ public class GameState {
         for (int i = 0; i < 3; i++) {
             if (checkLine(board[0][i], board[1][i], board[2][i])) {
                 gameOver = true;
-                winner = board[0][i];
+                winner = getPlayerNameBySymbol(board[0][i]);
                 return;
             }
         }
@@ -109,12 +149,12 @@ public class GameState {
         // Check diagonals
         if (checkLine(board[0][0], board[1][1], board[2][2])) {
             gameOver = true;
-            winner = board[0][0];
+            winner = getPlayerNameBySymbol(board[0][0]);
             return;
         }
         if (checkLine(board[0][2], board[1][1], board[2][0])) {
             gameOver = true;
-            winner = board[0][2];
+            winner = getPlayerNameBySymbol(board[0][2]);
             return;
         }
 
@@ -135,6 +175,15 @@ public class GameState {
             gameOver = true;
             winner = "DRAW";
         }
+    }
+
+    private String getPlayerNameBySymbol(String symbol) {
+        if ("X".equals(symbol)) {
+            return playerX;
+        } else if ("O".equals(symbol)) {
+            return playerO;
+        }
+        return null;
     }
 
     private boolean checkLine(String a, String b, String c) {
@@ -183,5 +232,35 @@ public class GameState {
         if (playerName.equals(playerO))
             return "O";
         return null;
+    }
+
+    public synchronized Map<String, Integer> getPlayerStats(String playerName) {
+        Map<String, Integer> stats = new HashMap<>();
+        stats.put("wins", playerWins.getOrDefault(playerName, 0));
+        stats.put("losses", playerLosses.getOrDefault(playerName, 0));
+        stats.put("draws", playerDraws.getOrDefault(playerName, 0));
+        return stats;
+    }
+
+    public synchronized List<String> getMatchHistory(String playerName) {
+        List<String> playerHistory = new ArrayList<>();
+        for (String match : matchHistory) {
+            if (match.contains(playerName)) {
+                playerHistory.add(match);
+            }
+        }
+        return playerHistory;
+    }
+
+    public synchronized String getOpponentName(String playerName) {
+        if (playerName.equals(playerX))
+            return playerO;
+        if (playerName.equals(playerO))
+            return playerX;
+        return null;
+    }
+
+    public synchronized boolean isPlayerConnected(String playerName) {
+        return playerName.equals(playerX) || playerName.equals(playerO);
     }
 }

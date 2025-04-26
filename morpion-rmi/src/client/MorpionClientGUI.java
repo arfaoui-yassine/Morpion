@@ -1,23 +1,37 @@
 package client;
 
 import shared.MorpionInterface;
+import shared.MorpionCallback;
 import javax.swing.*;
 import java.awt.*;
-
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.server.UnicastRemoteObject;
+import java.util.List;
+import java.util.Map;
 
-public class MorpionClientGUI extends JFrame {
+public class MorpionClientGUI extends JFrame implements MorpionCallback {
     private MorpionInterface game;
     private String playerName;
     private String playerSymbol;
     private JButton[][] buttons = new JButton[3][3];
     private JLabel statusLabel;
+    private JLabel playerInfoLabel;
+    private JLabel statsLabel;
     private JPanel mainPanel;
-    private Color bgColor = new Color(240, 240, 240);
-    private Color buttonColor = new Color(255, 255, 255);
-    private Color xColor = new Color(44, 62, 80);
-    private Color oColor = new Color(231, 76, 60);
+    private JPanel historyPanel;
+    private JTextArea historyArea;
+
+    // Color scheme
+    private final Color bgColor = new Color(245, 247, 250);
+    private final Color cardColor = new Color(255, 255, 255);
+    private final Color primaryColor = new Color(70, 130, 180);
+    private final Color secondaryColor = new Color(231, 76, 60);
+    private final Color accentColor = new Color(46, 204, 113);
+    private final Color textColor = new Color(51, 51, 51);
 
     public MorpionClientGUI() {
         setupGUI();
@@ -25,176 +39,268 @@ public class MorpionClientGUI extends JFrame {
     }
 
     private void setupGUI() {
-        setTitle("Tic-Tac-Toe (RMI)");
-        setSize(500, 600);
+        setTitle("Morpion Battle");
+        setSize(600, 600);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        mainPanel = new JPanel(new BorderLayout(10, 10));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        mainPanel = new JPanel(new BorderLayout(5, 5));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         mainPanel.setBackground(bgColor);
 
-        // Status label
+        // Header panel
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(bgColor);
+
         statusLabel = new JLabel("Connecting to server...", SwingConstants.CENTER);
-        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 16)); // Smaller font
         statusLabel.setOpaque(true);
-        statusLabel.setBackground(new Color(52, 152, 219));
+        statusLabel.setBackground(primaryColor);
         statusLabel.setForeground(Color.WHITE);
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+
+        playerInfoLabel = new JLabel("", SwingConstants.CENTER);
+        playerInfoLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        playerInfoLabel.setForeground(textColor);
+
+        statsLabel = new JLabel("", SwingConstants.CENTER);
+        statsLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        statsLabel.setForeground(textColor);
+
+        headerPanel.add(statusLabel, BorderLayout.NORTH);
+        headerPanel.add(playerInfoLabel, BorderLayout.CENTER);
+        headerPanel.add(statsLabel, BorderLayout.SOUTH);
 
         // Game board
-        JPanel boardPanel = new JPanel(new GridLayout(3, 3, 10, 10));
+        JPanel boardPanel = new JPanel(new GridLayout(3, 3, 5, 5)); // Reduced gaps
         boardPanel.setBackground(bgColor);
-        boardPanel.setBorder(BorderFactory.createEmptyBorder(20, 0, 20, 0));
+        boardPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        Font buttonFont = new Font("Segoe UI", Font.BOLD, 60);
-
+        Font buttonFont = new Font("Segoe UI", Font.BOLD, 48); // Smaller font
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
                 final int row = i, col = j;
                 buttons[i][j] = new JButton();
                 buttons[i][j].setFont(buttonFont);
-                buttons[i][j].setBackground(buttonColor);
+                buttons[i][j].setBackground(cardColor);
                 buttons[i][j].setFocusPainted(false);
+                buttons[i][j].setPreferredSize(new Dimension(80, 80)); // Fixed button size
                 buttons[i][j].addActionListener(e -> handleMove(row, col));
-                buttons[i][j].setBorder(BorderFactory.createLineBorder(new Color(189, 195, 199), 2));
+
+                buttons[i][j].addMouseListener(new MouseAdapter() {
+                    public void mouseEntered(MouseEvent e) {
+                        if (buttons[row][col].getText().isEmpty()) {
+                            buttons[row][col].setBackground(new Color(245, 245, 245));
+                        }
+                    }
+
+                    public void mouseExited(MouseEvent e) {
+                        buttons[row][col].setBackground(cardColor);
+                    }
+                });
+
                 boardPanel.add(buttons[i][j]);
             }
         }
 
-        mainPanel.add(statusLabel, BorderLayout.NORTH);
+        // History panel - now with fixed size
+        historyPanel = new JPanel(new BorderLayout());
+        historyPanel.setBorder(BorderFactory.createTitledBorder("Match History (Last 5 games)"));
+        historyPanel.setBackground(bgColor);
+        historyPanel.setPreferredSize(new Dimension(0, 120)); // Fixed height
+
+        historyArea = new JTextArea(5, 20); // Fixed rows
+        historyArea.setEditable(false);
+        historyArea.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        historyArea.setBackground(bgColor);
+        historyArea.setLineWrap(true);
+        historyArea.setWrapStyleWord(true);
+        JScrollPane scrollPane = new JScrollPane(historyArea);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        historyPanel.add(scrollPane, BorderLayout.CENTER);
+
+        mainPanel.add(headerPanel, BorderLayout.NORTH);
         mainPanel.add(boardPanel, BorderLayout.CENTER);
+        mainPanel.add(historyPanel, BorderLayout.SOUTH);
 
         add(mainPanel);
     }
 
     private void connectToServer() {
         try {
-            // Get player name with a modern input dialog
             playerName = JOptionPane.showInputDialog(this,
-                    "Enter your name:",
-                    "Player Registration",
-                    JOptionPane.PLAIN_MESSAGE);
+                    "Enter your name:", "Player Registration", JOptionPane.PLAIN_MESSAGE);
 
             if (playerName == null || playerName.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Name cannot be empty. Exiting...");
+                JOptionPane.showMessageDialog(this, "Name cannot be empty. Exiting...",
+                        "Error", JOptionPane.ERROR_MESSAGE);
                 System.exit(0);
             }
 
             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
             game = (MorpionInterface) registry.lookup("MorpionGame");
 
-            String status = game.registerPlayer(playerName);
-            updateStatus(status.equals("WAIT") ? "Waiting for opponent..." : "Connected as Player O");
+            MorpionCallback callbackStub = (MorpionCallback) UnicastRemoteObject.exportObject(this, 0);
 
-            new Thread(this::gameLoop).start();
+            String status = game.registerPlayer(playerName, callbackStub);
+            updateStatus(status.equals("WAIT") ? "Waiting for opponent..." : "Connected to game");
 
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    "Failed to connect to server: " + e.getMessage(),
-                    "Connection Error",
-                    JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Failed to connect to server: " + e.getMessage(),
+                    "Connection Error", JOptionPane.ERROR_MESSAGE);
             System.exit(1);
         }
     }
 
     private void handleMove(int row, int col) {
         try {
-            String result = game.makeMove(row, col, playerName);
-            if (result.equals("VALID_MOVE")) {
-                updateBoard();
-            } else {
-                showMessage(result);
+            if (game.isPlayerTurn(playerName)) {
+                String result = game.makeMove(row, col, playerName);
+                if (!result.equals("VALID_MOVE")) {
+                    JOptionPane.showMessageDialog(this, result, "Move Error", JOptionPane.WARNING_MESSAGE);
+                }
             }
-        } catch (Exception e) {
-            showMessage("Error: " + e.getMessage());
+        } catch (RemoteException e) {
+            JOptionPane.showMessageDialog(this, "Error: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
-    private void gameLoop() {
-        try {
-            // Wait for game to start
-            while (!game.isGameReady()) {
-                Thread.sleep(1000);
-            }
-
-            playerSymbol = game.getPlayerSymbol(playerName);
-            updateStatus("Game started! You are Player " + playerSymbol);
-
-            // Main game loop
-            while (!game.isGameOver()) {
-                updateBoard();
-                Thread.sleep(500);
-            }
-
-            // Game over
-            updateBoard();
-            String winner = game.getWinner();
-            if (winner.equals("Draw")) {
-                showMessage("Game ended in a draw!");
-            } else {
-                showMessage("Player " + winner + " wins!");
-            }
-
-            // Ask to replay
-            int choice = JOptionPane.showConfirmDialog(this,
-                    "Would you like to play again?",
-                    "Game Over",
-                    JOptionPane.YES_NO_OPTION);
-
-            if (choice == JOptionPane.YES_OPTION) {
-                game.resetGame();
-                gameLoop();
-            } else {
-                game.disconnectPlayer(playerName);
-                System.exit(0);
-            }
-
-        } catch (Exception e) {
-            showMessage("Game error: " + e.getMessage());
-        }
-    }
-
-    private void updateBoard() throws Exception {
-        String boardState = game.getCurrentBoard();
-        String[] rows = boardState.split("\n");
-
+    @Override
+    public void updateBoard(String boardState) {
         SwingUtilities.invokeLater(() -> {
+            String[] rows = boardState.split("\n");
             for (int i = 0; i < 3; i++) {
                 String[] cells = rows[i * 2].split("\\|");
                 for (int j = 0; j < 3; j++) {
                     String cell = cells[j].trim();
-                    buttons[i][j].setText(cell);
                     if (cell.equals("X")) {
-                        buttons[i][j].setForeground(xColor);
+                        buttons[i][j].setText("X");
+                        buttons[i][j].setForeground(primaryColor);
                     } else if (cell.equals("O")) {
-                        buttons[i][j].setForeground(oColor);
+                        buttons[i][j].setText("O");
+                        buttons[i][j].setForeground(secondaryColor);
+                    } else {
+                        buttons[i][j].setText("");
                     }
                 }
             }
 
             try {
                 if (game.isPlayerTurn(playerName)) {
-                    updateStatus("Your turn (Player " + playerSymbol + ")");
+                    statusLabel.setText("YOUR TURN - Player " + playerSymbol);
+                    statusLabel.setBackground(accentColor);
                 } else {
-                    updateStatus("Waiting for opponent...");
+                    statusLabel.setText("Waiting for opponent's move...");
+                    statusLabel.setBackground(primaryColor);
                 }
-            } catch (Exception e) {
-                updateStatus("Error: " + e.getMessage());
+                updateStats();
+            } catch (RemoteException e) {
+                JOptionPane.showMessageDialog(this, "Error updating game state", "Network Error",
+                        JOptionPane.ERROR_MESSAGE);
             }
         });
     }
 
-    private void updateStatus(String message) {
+    @Override
+    public void gameReady(String playerSymbol) {
         SwingUtilities.invokeLater(() -> {
-            statusLabel.setText(message);
+            this.playerSymbol = playerSymbol;
+            updatePlayerInfo();
+            updateStatus("Game started! You are Player " + playerSymbol);
+            try {
+                updateStats();
+            } catch (RemoteException e) {
+                JOptionPane.showMessageDialog(this, "Error getting stats", "Network Error", JOptionPane.ERROR_MESSAGE);
+            }
         });
     }
 
-    private void showMessage(String message) {
+    @Override
+    public void gameOver(String winner) {
         SwingUtilities.invokeLater(() -> {
-            JOptionPane.showMessageDialog(this, message);
+            try {
+                String message;
+                if ("DRAW".equals(winner)) {
+                    message = "Game ended in a draw!";
+                } else {
+                    message = winner.equals(playerName) ? "You won!" : "You lost!";
+                }
+
+                int choice = JOptionPane.showOptionDialog(this,
+                        message + "\nWould you like to play again?",
+                        "Game Over",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE,
+                        null,
+                        new Object[] { "Play Again", "Quit" },
+                        "Play Again");
+
+                if (choice == JOptionPane.YES_OPTION) {
+                    game.resetGame();
+                    resetBoard();
+                    playerSymbol = null;
+                    updateStatus("Waiting for opponent...");
+                } else {
+                    game.disconnectPlayer(playerName);
+                    System.exit(0);
+                }
+            } catch (RemoteException e) {
+                JOptionPane.showMessageDialog(this, "Error resetting game", "Network Error", JOptionPane.ERROR_MESSAGE);
+            }
         });
+    }
+
+    @Override
+    public void opponentDisconnected() {
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(this,
+                    "Your opponent has disconnected. The game will be reset.",
+                    "Opponent Disconnected",
+                    JOptionPane.INFORMATION_MESSAGE);
+            try {
+                game.resetGame();
+                resetBoard();
+                playerSymbol = null;
+                updateStatus("Waiting for new opponent...");
+            } catch (RemoteException e) {
+                JOptionPane.showMessageDialog(this, "Error resetting game", "Network Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+    }
+
+    private void updateStats() throws RemoteException {
+        Map<String, Integer> stats = game.getPlayerStats(playerName);
+        String opponent = game.getOpponentName(playerName);
+
+        String statsText = String.format("Wins: %d | Losses: %d | Draws: %d | Opponent: %s",
+                stats.get("wins"), stats.get("losses"), stats.get("draws"),
+                opponent != null ? opponent : "None");
+        statsLabel.setText(statsText);
+
+        List<String> history = game.getMatchHistory(playerName);
+        historyArea.setText("");
+        // Show only last 5 matches
+        int startIndex = Math.max(0, history.size() - 5);
+        for (int i = startIndex; i < history.size(); i++) {
+            historyArea.append(history.get(i) + "\n");
+        }
+    }
+
+    private void updatePlayerInfo() {
+        playerInfoLabel.setText("Playing as: " + playerName + " (" + playerSymbol + ")");
+    }
+
+    private void updateStatus(String message) {
+        statusLabel.setText(message);
+    }
+
+    private void resetBoard() {
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                buttons[i][j].setText("");
+                buttons[i][j].setBackground(cardColor);
+            }
+        }
     }
 
     public static void main(String[] args) {

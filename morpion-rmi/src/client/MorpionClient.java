@@ -4,6 +4,8 @@ import shared.MorpionInterface;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.util.Scanner;
+import java.util.Map;
+import java.util.List;
 
 public class MorpionClient {
     public static void main(String[] args) {
@@ -15,9 +17,8 @@ public class MorpionClient {
             MorpionInterface game = (MorpionInterface) registry.lookup("MorpionGame");
 
             String status = game.registerPlayer(playerName);
-            System.out.println(status.equals("WAIT") ? "Waiting for opponent..." : "Connected as Player O");
+            System.out.println(status.equals("WAIT") ? "Waiting for opponent..." : "Connected to game");
 
-            // Wait for game to start
             while (!game.isGameReady()) {
                 Thread.sleep(2000);
                 System.out.println("Waiting for opponent...");
@@ -25,6 +26,7 @@ public class MorpionClient {
 
             String playerSymbol = game.getPlayerSymbol(playerName);
             System.out.println("Game started! You are Player " + playerSymbol);
+            printStats(game, playerName);
 
             while (!game.isGameOver()) {
                 System.out.println("\nCurrent board:");
@@ -50,12 +52,15 @@ public class MorpionClient {
             System.out.println("\nFinal board:");
             System.out.println(game.getCurrentBoard());
             String winner = game.getWinner();
-            System.out.println(winner.equals("Draw") ? "Game ended in a draw!" : "Player " + winner + " wins!");
+            System.out.println(winner.equals("DRAW") ? "Game ended in a draw!"
+                    : winner.equals(playerName) ? "You won!" : "You lost!");
+
+            printStats(game, playerName);
 
             System.out.print("Play again? (y/n): ");
             if (scanner.nextLine().equalsIgnoreCase("y")) {
                 game.resetGame();
-                main(args); // Restart game
+                main(args);
             } else {
                 game.disconnectPlayer(playerName);
             }
@@ -63,6 +68,21 @@ public class MorpionClient {
         } catch (Exception e) {
             System.err.println("Client error: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    private static void printStats(MorpionInterface game, String playerName) throws Exception {
+        Map<String, Integer> stats = game.getPlayerStats(playerName);
+        System.out.println("\nYour stats - Wins: " + stats.get("wins") +
+                " | Losses: " + stats.get("losses") +
+                " | Draws: " + stats.get("draws"));
+
+        List<String> history = game.getMatchHistory(playerName);
+        if (!history.isEmpty()) {
+            System.out.println("\nMatch History:");
+            for (String match : history) {
+                System.out.println(" - " + match);
+            }
         }
     }
 }

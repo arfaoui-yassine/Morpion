@@ -2,11 +2,13 @@ package shared;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
+import java.util.List;
+import java.util.Map;
 
 public interface MorpionInterface extends Remote {
-    String registerPlayer(String playerName) throws RemoteException;
+    String registerPlayer(String playerName, MorpionCallback callback) throws RemoteException;
 
-    String makeMove(int row, int col, String playerName) throws RemoteException; // Returns status message
+    String makeMove(int row, int col, String playerName) throws RemoteException;
 
     String getCurrentBoard() throws RemoteException;
 
@@ -23,4 +25,12 @@ public interface MorpionInterface extends Remote {
     void disconnectPlayer(String playerName) throws RemoteException;
 
     String getPlayerSymbol(String playerName) throws RemoteException;
+
+    Map<String, Integer> getPlayerStats(String playerName) throws RemoteException;
+
+    List<String> getMatchHistory(String playerName) throws RemoteException;
+
+    String getOpponentName(String playerName) throws RemoteException;
+
+    boolean isPlayerConnected(String playerName) throws RemoteException;
 }

@@ -1,5 +1,14 @@
+
+
 @echo off
-mkdir bin 2> nul
+call jdk8.bat
+
+:: Compile
 javac -d bin src\shared\*.java src\model\*.java src\server\*.java src\client\*.java
-echo Compiled successfully!
+
+:: Generate RMI stubs
+rmic -d bin -classpath bin server.MorpionServer
+
+echo Build complete with JDK 8
+dir bin\server\MorpionServer_*.class
 pause

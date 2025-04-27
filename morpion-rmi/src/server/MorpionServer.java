@@ -1,3 +1,4 @@
+// server/MorpionServer.java
 package server;
 
 import shared.MorpionInterface;
@@ -8,183 +9,239 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.RemoteServer;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.Map;
-
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.List;
 
 public class MorpionServer extends RemoteServer implements MorpionInterface {
-    private final GameState gameState = new GameState();
+    private final Map<String, GameState> gameStates = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, MorpionCallback>> gameCallbacks = new ConcurrentHashMap<>();
     private boolean running = true;
-    private final Map<String, MorpionCallback> callbacks = new ConcurrentHashMap<>();
 
     public MorpionServer() throws RemoteException {
         super();
-        new Thread(this::cleanupTask).start();
+        startCleanupThread();
     }
 
-    private void cleanupTask() {
-        while (running) {
-            try {
-                Thread.sleep(5000);
-                synchronized (gameState) {
-                    if (gameState.checkTimeout()) {
-                        System.out.println("Resetting inactive game...");
-                        String playerX = gameState.getPlayerX();
-                        String playerO = gameState.getPlayerO();
-
-                        if (playerX != null && callbacks.containsKey(playerX)) {
-                            callbacks.get(playerX).opponentDisconnected();
-                        }
-                        if (playerO != null && callbacks.containsKey(playerO)) {
-                            callbacks.get(playerO).opponentDisconnected();
-                        }
-
-                        gameState.resetGame();
-                        callbacks.clear();
-                    }
+    private void startCleanupThread() {
+        new Thread(() -> {
+            while (running) {
+                try {
+                    Thread.sleep(500000);
+                    cleanupInactiveGames();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (RemoteException e) {
-                System.err.println("Error in cleanup: " + e.getMessage());
             }
+        }).start();
+    }
+
+    private void cleanupInactiveGames() {
+        List<String> toRemove = new ArrayList<>();
+        for (Map.Entry<String, GameState> entry : gameStates.entrySet()) {
+            String gameId = entry.getKey();
+            GameState gameState = entry.getValue();
+
+            synchronized (gameState) {
+                if (gameState.checkTimeout()) {
+                    notifyPlayersOfTimeout(gameId);
+                    toRemove.add(gameId);
+                }
+            }
+        }
+
+        toRemove.forEach(gameId -> {
+            gameStates.remove(gameId);
+            gameCallbacks.remove(gameId);
+        });
+    }
+
+    private void notifyPlayersOfTimeout(String gameId) {
+        try {
+            GameState gameState = gameStates.get(gameId);
+            Map<String, MorpionCallback> callbacks = gameCallbacks.get(gameId);
+
+            if (callbacks != null) {
+                String playerX = gameState.getPlayerX();
+                String playerO = gameState.getPlayerO();
+
+                if (playerX != null && callbacks.containsKey(playerX)) {
+                    callbacks.get(playerX).opponentDisconnected();
+                }
+                if (playerO != null && callbacks.containsKey(playerO)) {
+                    callbacks.get(playerO).opponentDisconnected();
+                }
+            }
+        } catch (RemoteException e) {
+            System.err.println("Error notifying players of timeout: " + e.getMessage());
         }
     }
 
     @Override
-    public synchronized String registerPlayer(String playerName, MorpionCallback callback) throws RemoteException {
+    public String createNewGame() throws RemoteException {
+        String gameId = UUID.randomUUID().toString();
+        gameStates.put(gameId, new GameState());
+        gameCallbacks.put(gameId, new ConcurrentHashMap<>());
+        return gameId;
+    }
+
+    @Override
+    public List<String> getAvailableGames() throws RemoteException {
+        List<String> availableGames = new ArrayList<>();
+        for (Map.Entry<String, GameState> entry : gameStates.entrySet()) {
+            if (!entry.getValue().isGameReady()) {
+                availableGames.add(entry.getKey());
+            }
+        }
+        return availableGames;
+    }
+
+    @Override
+    public String registerPlayer(String gameId, String playerName, MorpionCallback callback) throws RemoteException {
+        if (!gameStates.containsKey(gameId)) {
+            return "GAME_NOT_FOUND";
+        }
+
+        GameState gameState = gameStates.get(gameId);
+        Map<String, MorpionCallback> callbacks = gameCallbacks.get(gameId);
         callbacks.put(playerName, callback);
+
         String status = gameState.registerPlayer(playerName);
 
         if (gameState.isGameReady()) {
-            // Notify both players that game is ready
-            String playerX = gameState.getPlayerX();
-            String playerO = gameState.getPlayerO();
-
-            callbacks.get(playerX).gameReady("X");
-            callbacks.get(playerO).gameReady("O");
-
-            // Send initial board state
-            String boardState = gameState.getCurrentBoard();
-            callbacks.get(playerX).updateBoard(boardState);
-            callbacks.get(playerO).updateBoard(boardState);
+            notifyPlayersGameReady(gameId, gameState, callbacks);
         }
 
         return status;
     }
 
-    @Override
-    public synchronized String makeMove(int row, int col, String playerName) throws RemoteException {
-        if (!gameState.isGameReady()) {
-            return "GAME_NOT_READY";
-        }
-        if (gameState.isGameOver()) {
-            return "GAME_OVER";
-        }
-        if (!gameState.isPlayerTurn(playerName)) {
-            return "NOT_YOUR_TURN";
-        }
-
-        if (!gameState.makeMove(row, col, playerName)) {
-            return "INVALID_MOVE";
-        }
-
-        // Notify both players of board update
-        String boardState = gameState.getCurrentBoard();
+    private void notifyPlayersGameReady(String gameId, GameState gameState, Map<String, MorpionCallback> callbacks)
+            throws RemoteException {
         String playerX = gameState.getPlayerX();
         String playerO = gameState.getPlayerO();
 
-        if (playerX != null && callbacks.containsKey(playerX)) {
-            callbacks.get(playerX).updateBoard(boardState);
-        }
-        if (playerO != null && callbacks.containsKey(playerO)) {
-            callbacks.get(playerO).updateBoard(boardState);
+        callbacks.get(playerX).gameReady("X");
+        callbacks.get(playerO).gameReady("O");
+
+        String boardState = gameState.getCurrentBoard();
+        callbacks.get(playerX).updateBoard(boardState);
+        callbacks.get(playerO).updateBoard(boardState);
+    }
+
+    @Override
+    public String makeMove(String gameId, int row, int col, String playerName) throws RemoteException {
+        if (!gameStates.containsKey(gameId)) {
+            return "GAME_NOT_FOUND";
         }
 
-        if (gameState.isGameOver()) {
-            String winner = gameState.getWinner();
-            if (playerX != null && callbacks.containsKey(playerX)) {
-                callbacks.get(playerX).gameOver(winner);
-            }
-            if (playerO != null && callbacks.containsKey(playerO)) {
-                callbacks.get(playerO).gameOver(winner);
-            }
+        GameState gameState = gameStates.get(gameId);
+        Map<String, MorpionCallback> callbacks = gameCallbacks.get(gameId);
+
+        synchronized (gameState) {
+            if (!gameState.isGameReady())
+                return "GAME_NOT_READY";
+            if (gameState.isGameOver())
+                return "GAME_OVER";
+            if (!gameState.isPlayerTurn(playerName))
+                return "NOT_YOUR_TURN";
+            if (!gameState.makeMove(row, col, playerName))
+                return "INVALID_MOVE";
+
+            updatePlayersAfterMove(gameId, gameState, callbacks);
         }
 
         return "VALID_MOVE";
     }
 
-    @Override
-    public synchronized String getCurrentBoard() throws RemoteException {
-        return gameState.getCurrentBoard();
-    }
+    private void updatePlayersAfterMove(String gameId, GameState gameState, Map<String, MorpionCallback> callbacks)
+            throws RemoteException {
+        String boardState = gameState.getCurrentBoard();
+        String playerX = gameState.getPlayerX();
+        String playerO = gameState.getPlayerO();
 
-    @Override
-    public synchronized boolean isGameOver() throws RemoteException {
-        return gameState.isGameOver();
-    }
+        if (playerX != null)
+            callbacks.get(playerX).updateBoard(boardState);
+        if (playerO != null)
+            callbacks.get(playerO).updateBoard(boardState);
 
-    @Override
-    public synchronized String getWinner() throws RemoteException {
-        return gameState.getWinner();
-    }
-
-    @Override
-    public synchronized boolean isPlayerTurn(String playerName) throws RemoteException {
-        return gameState.isPlayerTurn(playerName);
-    }
-
-    @Override
-    public synchronized boolean isGameReady() throws RemoteException {
-        return gameState.isGameReady();
-    }
-
-    @Override
-    public synchronized void resetGame() throws RemoteException {
-        gameState.resetGame();
-    }
-
-    @Override
-    public synchronized void disconnectPlayer(String playerName) throws RemoteException {
-        callbacks.remove(playerName);
-        gameState.disconnectPlayer(playerName);
-
-        String opponent = gameState.getOpponentName(playerName);
-        if (opponent != null && callbacks.containsKey(opponent)) {
-            callbacks.get(opponent).opponentDisconnected();
+        if (gameState.isGameOver()) {
+            String winner = gameState.getWinner();
+            if (playerX != null)
+                callbacks.get(playerX).gameOver(winner);
+            if (playerO != null)
+                callbacks.get(playerO).gameOver(winner);
         }
     }
 
     @Override
-    public synchronized String getPlayerSymbol(String playerName) throws RemoteException {
-        if (gameState.getPlayerX() != null && gameState.getPlayerX().equals(playerName)) {
-            return "X";
+    public String getCurrentBoard(String gameId) throws RemoteException {
+        return gameStates.containsKey(gameId) ? gameStates.get(gameId).getCurrentBoard() : "";
+    }
+
+    @Override
+    public boolean isGameOver(String gameId) throws RemoteException {
+        return gameStates.containsKey(gameId) && gameStates.get(gameId).isGameOver();
+    }
+
+    @Override
+    public String getWinner(String gameId) throws RemoteException {
+        return gameStates.containsKey(gameId) ? gameStates.get(gameId).getWinner() : null;
+    }
+
+    @Override
+    public boolean isPlayerTurn(String gameId, String playerName) throws RemoteException {
+        return gameStates.containsKey(gameId) && gameStates.get(gameId).isPlayerTurn(playerName);
+    }
+
+    @Override
+    public boolean isGameReady(String gameId) throws RemoteException {
+        return gameStates.containsKey(gameId) && gameStates.get(gameId).isGameReady();
+    }
+
+    @Override
+    public void resetGame(String gameId) throws RemoteException {
+        if (gameStates.containsKey(gameId)) {
+            gameStates.get(gameId).resetGame();
         }
-        if (gameState.getPlayerO() != null && gameState.getPlayerO().equals(playerName)) {
-            return "O";
+    }
+
+    @Override
+    public void disconnectPlayer(String gameId, String playerName) throws RemoteException {
+        if (gameStates.containsKey(gameId)) {
+            GameState gameState = gameStates.get(gameId);
+            Map<String, MorpionCallback> callbacks = gameCallbacks.get(gameId);
+
+            synchronized (gameState) {
+                gameState.disconnectPlayer(playerName);
+                callbacks.remove(playerName);
+
+                String opponent = gameState.getOpponentName(playerName);
+                if (opponent != null && callbacks.containsKey(opponent)) {
+                    callbacks.get(opponent).opponentDisconnected();
+                }
+            }
         }
-        return null;
     }
 
     @Override
-    public synchronized Map<String, Integer> getPlayerStats(String playerName) throws RemoteException {
-        return gameState.getPlayerStats(playerName);
+    public String getPlayerSymbol(String gameId, String playerName) throws RemoteException {
+        return gameStates.containsKey(gameId) ? gameStates.get(gameId).getPlayerSymbol(playerName) : null;
     }
 
     @Override
-    public synchronized List<String> getMatchHistory(String playerName) throws RemoteException {
-        return gameState.getMatchHistory(playerName);
+    public Map<String, Integer> getPlayerStats(String gameId, String playerName) throws RemoteException {
+        return gameStates.containsKey(gameId) ? gameStates.get(gameId).getPlayerStats(playerName)
+                : Collections.emptyMap();
     }
 
     @Override
-    public synchronized String getOpponentName(String playerName) throws RemoteException {
-        return gameState.getOpponentName(playerName);
+    public List<String> getMatchHistory(String gameId, String playerName) throws RemoteException {
+        return gameStates.containsKey(gameId) ? gameStates.get(gameId).getMatchHistory(playerName)
+                : Collections.emptyList();
     }
 
     @Override
-    public synchronized boolean isPlayerConnected(String playerName) throws RemoteException {
-        return gameState.isPlayerConnected(playerName);
+    public String getOpponentName(String gameId, String playerName) throws RemoteException {
+        return gameStates.containsKey(gameId) ? gameStates.get(gameId).getOpponentName(playerName) : null;
     }
 
     public static void main(String[] args) {

@@ -1,3 +1,4 @@
+// model/GameState.java
 package model;
 
 import java.util.ArrayList;
@@ -26,6 +27,22 @@ public class GameState {
         resetGame();
     }
 
+    public String getPlayerO() {
+        return playerO;
+    }
+
+    public void setPlayerO(String playerO) {
+        this.playerO = playerO;
+    }
+
+    public String getPlayerX() {
+        return playerX;
+    }
+
+    public void setPlayerX(String playerX) {
+        this.playerX = playerX;
+    }
+
     public synchronized void resetGame() {
         board = new String[3][3];
         for (int i = 0; i < 3; i++) {
@@ -39,14 +56,6 @@ public class GameState {
         updateActivity();
     }
 
-    public synchronized String getPlayerX() {
-        return playerX;
-    }
-
-    public synchronized String getPlayerO() {
-        return playerO;
-    }
-
     public synchronized String registerPlayer(String playerName) {
         if (playerX == null) {
             playerX = playerName;
@@ -55,15 +64,19 @@ public class GameState {
         } else if (playerO == null) {
             playerO = playerName;
             updateActivity();
-            playerWins.putIfAbsent(playerX, 0);
-            playerWins.putIfAbsent(playerO, 0);
-            playerLosses.putIfAbsent(playerX, 0);
-            playerLosses.putIfAbsent(playerO, 0);
-            playerDraws.putIfAbsent(playerX, 0);
-            playerDraws.putIfAbsent(playerO, 0);
+            initPlayerStats();
             return currentPlayer.equals("X") ? "X" : "O";
         }
         return "GAME_FULL";
+    }
+
+    private void initPlayerStats() {
+        playerWins.putIfAbsent(playerX, 0);
+        playerWins.putIfAbsent(playerO, 0);
+        playerLosses.putIfAbsent(playerX, 0);
+        playerLosses.putIfAbsent(playerO, 0);
+        playerDraws.putIfAbsent(playerX, 0);
+        playerDraws.putIfAbsent(playerO, 0);
     }
 
     public synchronized void disconnectPlayer(String playerName) {
@@ -114,12 +127,8 @@ public class GameState {
     }
 
     private void addToMatchHistory() {
-        String result;
-        if ("DRAW".equals(winner)) {
-            result = "Draw between " + playerX + " and " + playerO;
-        } else {
-            result = winner + " won against " + (winner.equals(playerX) ? playerO : playerX);
-        }
+        String result = "DRAW".equals(winner) ? "Draw between " + playerX + " and " + playerO
+                : winner + " won against " + (winner.equals(playerX) ? playerO : playerX);
         matchHistory.add(result);
     }
 
@@ -128,47 +137,17 @@ public class GameState {
     }
 
     private void checkGameOver() {
-        // Check rows
-        for (int i = 0; i < 3; i++) {
-            if (checkLine(board[i][0], board[i][1], board[i][2])) {
-                gameOver = true;
-                winner = getPlayerNameBySymbol(board[i][0]);
-                return;
-            }
-        }
-
-        // Check columns
-        for (int i = 0; i < 3; i++) {
-            if (checkLine(board[0][i], board[1][i], board[2][i])) {
-                gameOver = true;
-                winner = getPlayerNameBySymbol(board[0][i]);
-                return;
-            }
-        }
-
-        // Check diagonals
-        if (checkLine(board[0][0], board[1][1], board[2][2])) {
-            gameOver = true;
-            winner = getPlayerNameBySymbol(board[0][0]);
+        if (checkLines() || checkDiagonals())
             return;
-        }
-        if (checkLine(board[0][2], board[1][1], board[2][0])) {
-            gameOver = true;
-            winner = getPlayerNameBySymbol(board[0][2]);
-            return;
-        }
 
-        // Check for draw
         boolean isDraw = true;
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 3; j++) {
-                if (board[i][j].equals(" ")) {
+        for (String[] row : board) {
+            for (String cell : row) {
+                if (cell.equals(" ")) {
                     isDraw = false;
                     break;
                 }
             }
-            if (!isDraw)
-                break;
         }
 
         if (isDraw) {
@@ -177,13 +156,38 @@ public class GameState {
         }
     }
 
-    private String getPlayerNameBySymbol(String symbol) {
-        if ("X".equals(symbol)) {
-            return playerX;
-        } else if ("O".equals(symbol)) {
-            return playerO;
+    private boolean checkLines() {
+        for (int i = 0; i < 3; i++) {
+            if (checkLine(board[i][0], board[i][1], board[i][2])) {
+                gameOver = true;
+                winner = getPlayerNameBySymbol(board[i][0]);
+                return true;
+            }
+            if (checkLine(board[0][i], board[1][i], board[2][i])) {
+                gameOver = true;
+                winner = getPlayerNameBySymbol(board[0][i]);
+                return true;
+            }
         }
-        return null;
+        return false;
+    }
+
+    private boolean checkDiagonals() {
+        if (checkLine(board[0][0], board[1][1], board[2][2])) {
+            gameOver = true;
+            winner = getPlayerNameBySymbol(board[0][0]);
+            return true;
+        }
+        if (checkLine(board[0][2], board[1][1], board[2][0])) {
+            gameOver = true;
+            winner = getPlayerNameBySymbol(board[0][2]);
+            return true;
+        }
+        return false;
+    }
+
+    private String getPlayerNameBySymbol(String symbol) {
+        return "X".equals(symbol) ? playerX : "O".equals(symbol) ? playerO : null;
     }
 
     private boolean checkLine(String a, String b, String c) {

@@ -11,6 +11,7 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 
 public class MorpionClientGUI extends JFrame implements MorpionCallback {
@@ -24,6 +25,7 @@ public class MorpionClientGUI extends JFrame implements MorpionCallback {
     private JPanel mainPanel;
     private JPanel historyPanel;
     private JTextArea historyArea;
+    private JLabel roomLabel;
 
     // Color scheme
     private final Color bgColor = new Color(245, 247, 250);
@@ -38,45 +40,90 @@ public class MorpionClientGUI extends JFrame implements MorpionCallback {
         connectToServer();
     }
 
+    private String selectRoom() throws RemoteException {
+        // Get available rooms
+        List<String> rooms = game.listAvailableRooms();
+    
+        // Add "Create New Room" option
+        List<String> options = new ArrayList<>(rooms);
+        options.add("Create New Room");
+    
+        // Show selection dialog
+        String selection = (String) JOptionPane.showInputDialog(
+            this,
+            "Select a room to join or create a new one:",
+            "Room Selection",
+            JOptionPane.PLAIN_MESSAGE,
+            null,
+            options.toArray(),
+            options.get(0));
+    
+        if (selection == null) {
+            System.exit(0); // User cancelled
+        }
+    
+        // If the user picked "Create New Room", signal this
+        if (selection.equals("Create New Room")) {
+            return "CREATE_NEW_ROOM";
+        } else {
+            return selection; // Otherwise return the chosen roomId
+        }
+    }
+    
     private void setupGUI() {
         setTitle("Morpion Battle");
-        setSize(600, 600);
+        setSize(650, 700);  // Slightly larger to accommodate room info
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
-
+    
         mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         mainPanel.setBackground(bgColor);
-
-        // Header panel
-        JPanel headerPanel = new JPanel(new BorderLayout());
+    
+        // Header panel - now with 3 rows (room info, status, player info)
+        JPanel headerPanel = new JPanel(new GridLayout(3, 1, 5, 5));
         headerPanel.setBackground(bgColor);
-
+    
+        // Room info panel (top)
+        JPanel roomPanel = new JPanel(new BorderLayout());
+        roomPanel.setBackground(bgColor);
+        roomLabel = new JLabel("Room: Not connected", SwingConstants.CENTER);
+        roomLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        roomLabel.setForeground(textColor);
+        roomPanel.add(roomLabel, BorderLayout.CENTER);
+    
+        // Status panel (middle)
         statusLabel = new JLabel("Connecting to server...", SwingConstants.CENTER);
-        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 16)); // Smaller font
+        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
         statusLabel.setOpaque(true);
         statusLabel.setBackground(primaryColor);
         statusLabel.setForeground(Color.WHITE);
         statusLabel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
-
+    
+        // Player info panel (bottom)
+        JPanel playerPanel = new JPanel(new BorderLayout());
+        playerPanel.setBackground(bgColor);
         playerInfoLabel = new JLabel("", SwingConstants.CENTER);
         playerInfoLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
         playerInfoLabel.setForeground(textColor);
-
+        
         statsLabel = new JLabel("", SwingConstants.CENTER);
         statsLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         statsLabel.setForeground(textColor);
-
-        headerPanel.add(statusLabel, BorderLayout.NORTH);
-        headerPanel.add(playerInfoLabel, BorderLayout.CENTER);
-        headerPanel.add(statsLabel, BorderLayout.SOUTH);
-
-        // Game board
-        JPanel boardPanel = new JPanel(new GridLayout(3, 3, 5, 5)); // Reduced gaps
+        
+        playerPanel.add(playerInfoLabel, BorderLayout.CENTER);
+        playerPanel.add(statsLabel, BorderLayout.SOUTH);
+    
+        headerPanel.add(roomPanel);
+        headerPanel.add(statusLabel);
+        headerPanel.add(playerPanel);
+    
+        // Game board (unchanged)
+        JPanel boardPanel = new JPanel(new GridLayout(3, 3, 5, 5));
         boardPanel.setBackground(bgColor);
         boardPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        Font buttonFont = new Font("Segoe UI", Font.BOLD, 48); // Smaller font
+    
+        Font buttonFont = new Font("Segoe UI", Font.BOLD, 48);
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
                 final int row = i, col = j;
@@ -84,32 +131,30 @@ public class MorpionClientGUI extends JFrame implements MorpionCallback {
                 buttons[i][j].setFont(buttonFont);
                 buttons[i][j].setBackground(cardColor);
                 buttons[i][j].setFocusPainted(false);
-                buttons[i][j].setPreferredSize(new Dimension(80, 80)); // Fixed button size
+                buttons[i][j].setPreferredSize(new Dimension(80, 80));
                 buttons[i][j].addActionListener(e -> handleMove(row, col));
-
+    
                 buttons[i][j].addMouseListener(new MouseAdapter() {
                     public void mouseEntered(MouseEvent e) {
                         if (buttons[row][col].getText().isEmpty()) {
                             buttons[row][col].setBackground(new Color(245, 245, 245));
                         }
                     }
-
                     public void mouseExited(MouseEvent e) {
                         buttons[row][col].setBackground(cardColor);
                     }
                 });
-
                 boardPanel.add(buttons[i][j]);
             }
         }
-
-        // History panel - now with fixed size
+    
+        // History panel (unchanged)
         historyPanel = new JPanel(new BorderLayout());
         historyPanel.setBorder(BorderFactory.createTitledBorder("Match History (Last 5 games)"));
         historyPanel.setBackground(bgColor);
-        historyPanel.setPreferredSize(new Dimension(0, 120)); // Fixed height
-
-        historyArea = new JTextArea(5, 20); // Fixed rows
+        historyPanel.setPreferredSize(new Dimension(0, 120));
+    
+        historyArea = new JTextArea(5, 20);
         historyArea.setEditable(false);
         historyArea.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         historyArea.setBackground(bgColor);
@@ -118,39 +163,50 @@ public class MorpionClientGUI extends JFrame implements MorpionCallback {
         JScrollPane scrollPane = new JScrollPane(historyArea);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         historyPanel.add(scrollPane, BorderLayout.CENTER);
-
+    
         mainPanel.add(headerPanel, BorderLayout.NORTH);
         mainPanel.add(boardPanel, BorderLayout.CENTER);
         mainPanel.add(historyPanel, BorderLayout.SOUTH);
-
+    
         add(mainPanel);
     }
-
     private void connectToServer() {
         try {
             playerName = JOptionPane.showInputDialog(this,
-                    "Enter your name:", "Player Registration", JOptionPane.PLAIN_MESSAGE);
-
+                "Enter your name:", "Player Registration", JOptionPane.PLAIN_MESSAGE);
+    
             if (playerName == null || playerName.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Name cannot be empty. Exiting...",
-                        "Error", JOptionPane.ERROR_MESSAGE);
                 System.exit(0);
             }
-
+    
             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
             game = (MorpionInterface) registry.lookup("MorpionGame");
-
+    
+            // 1. Ask user to select or create room
+            String roomId = selectRoom();
+    
+            if (roomId.equals("CREATE_NEW_ROOM")) {
+                // 2. Actually create a new room
+                roomId = game.createNewRoom();
+            }
+    
+            // 3. Prepare callback
             MorpionCallback callbackStub = (MorpionCallback) UnicastRemoteObject.exportObject(this, 0);
-
-            String status = game.registerPlayer(playerName, callbackStub);
-            updateStatus(status.equals("WAIT") ? "Waiting for opponent..." : "Connected to game");
-
+    
+            // 4. Join the selected or newly created room
+            if (game.joinRoom(roomId, playerName, callbackStub)) {
+                updateStatus("Joined room: " + roomId);
+                roomLabel.setText("Room: " + roomId);
+            } else {
+                throw new RemoteException("Failed to join room");
+            }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Failed to connect to server: " + e.getMessage(),
-                    "Connection Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Connection error: " + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
             System.exit(1);
         }
     }
+    
 
     private void handleMove(int row, int col) {
         try {
@@ -236,7 +292,7 @@ public class MorpionClientGUI extends JFrame implements MorpionCallback {
                         "Play Again");
 
                 if (choice == JOptionPane.YES_OPTION) {
-                    game.resetGame();
+                    game.resetGame(playerName);
                     resetBoard();
                     playerSymbol = null;
                     updateStatus("Waiting for opponent...");

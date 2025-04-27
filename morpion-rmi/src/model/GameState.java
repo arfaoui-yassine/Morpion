@@ -50,20 +50,18 @@ public class GameState {
     public synchronized String registerPlayer(String playerName) {
         if (playerX == null) {
             playerX = playerName;
-            updateActivity();
-            return "WAIT";
         } else if (playerO == null) {
             playerO = playerName;
-            updateActivity();
-            playerWins.putIfAbsent(playerX, 0);
-            playerWins.putIfAbsent(playerO, 0);
-            playerLosses.putIfAbsent(playerX, 0);
-            playerLosses.putIfAbsent(playerO, 0);
-            playerDraws.putIfAbsent(playerX, 0);
-            playerDraws.putIfAbsent(playerO, 0);
-            return currentPlayer.equals("X") ? "X" : "O";
+        } else {
+            return "ROOM_FULL";
         }
-        return "GAME_FULL";
+
+        // Ensure player is initialized in stats maps
+        playerWins.putIfAbsent(playerName, 0);
+        playerLosses.putIfAbsent(playerName, 0);
+        playerDraws.putIfAbsent(playerName, 0);
+
+        return "SUCCESS";
     }
 
     public synchronized void disconnectPlayer(String playerName) {
@@ -101,15 +99,18 @@ public class GameState {
     }
 
     private void updatePlayerStats() {
+        if (playerX == null || playerO == null) {
+            return; // Safeguard against null players
+        }
         if ("DRAW".equals(winner)) {
-            playerDraws.put(playerX, playerDraws.get(playerX) + 1);
-            playerDraws.put(playerO, playerDraws.get(playerO) + 1);
-        } else if (playerX.equals(winner)) {
-            playerWins.put(playerX, playerWins.get(playerX) + 1);
-            playerLosses.put(playerO, playerLosses.get(playerO) + 1);
-        } else {
-            playerWins.put(playerO, playerWins.get(playerO) + 1);
-            playerLosses.put(playerX, playerLosses.get(playerX) + 1);
+            playerDraws.put(playerX, playerDraws.getOrDefault(playerX, 0) + 1);
+            playerDraws.put(playerO, playerDraws.getOrDefault(playerO, 0) + 1);
+        } else if (winner.equals(playerX)) {
+            playerWins.put(playerX, playerWins.getOrDefault(playerX, 0) + 1);
+            playerLosses.put(playerO, playerLosses.getOrDefault(playerO, 0) + 1);
+        } else if (winner.equals(playerO)) {
+            playerWins.put(playerO, playerWins.getOrDefault(playerO, 0) + 1);
+            playerLosses.put(playerX, playerLosses.getOrDefault(playerX, 0) + 1);
         }
     }
 
@@ -200,7 +201,7 @@ public class GameState {
 
     public synchronized boolean isPlayerTurn(String playerName) {
         return (currentPlayer.equals("X") && playerName.equals(playerX)) ||
-                (currentPlayer.equals("O") && playerName.equals(playerO));
+               (currentPlayer.equals("O") && playerName.equals(playerO));
     }
 
     public synchronized boolean isGameReady() {
@@ -218,8 +219,7 @@ public class GameState {
     public synchronized String getCurrentBoard() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 3; i++) {
-            sb.append(" ").append(board[i][0]).append(" | ").append(board[i][1]).append(" | ").append(board[i][2])
-                    .append(" \n");
+            sb.append(" ").append(board[i][0]).append(" | ").append(board[i][1]).append(" | ").append(board[i][2]).append(" \n");
             if (i < 2)
                 sb.append("-----------\n");
         }

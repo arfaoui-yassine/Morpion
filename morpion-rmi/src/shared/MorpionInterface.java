@@ -6,6 +6,9 @@ import java.util.List;
 import java.util.Map;
 
 public interface MorpionInterface extends Remote {
+    List<String> listAvailableRooms() throws RemoteException;
+    String createNewRoom() throws RemoteException;
+    boolean joinRoom(String roomId, String playerName, MorpionCallback callback) throws RemoteException;
     String registerPlayer(String playerName, MorpionCallback callback) throws RemoteException;
 
     String makeMove(int row, int col, String playerName) throws RemoteException;
@@ -21,7 +24,8 @@ public interface MorpionInterface extends Remote {
     boolean isGameReady() throws RemoteException;
 
     void resetGame() throws RemoteException;
-
+    
+    void resetGame(String playerName) throws RemoteException;
     void disconnectPlayer(String playerName) throws RemoteException;
 
     String getPlayerSymbol(String playerName) throws RemoteException;

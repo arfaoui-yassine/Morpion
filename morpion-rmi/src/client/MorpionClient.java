@@ -16,8 +16,9 @@ public class MorpionClient {
             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
             MorpionInterface game = (MorpionInterface) registry.lookup("MorpionGame");
 
-            String status = game.registerPlayer(playerName);
-            System.out.println(status.equals("WAIT") ? "Waiting for opponent..." : "Connected to game");
+            // String status = game.registerPlayer(playerName);
+            // System.out.println(status.equals("WAIT") ? "Waiting for opponent..." :
+            // "Connected to game");
 
             while (!game.isGameReady()) {
                 Thread.sleep(2000);

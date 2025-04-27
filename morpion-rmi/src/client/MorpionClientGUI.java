@@ -294,7 +294,6 @@ public class MorpionClientGUI extends JFrame implements MorpionCallback {
                 if (choice == JOptionPane.YES_OPTION) {
                     game.resetGame(playerName);
                     resetBoard();
-                    playerSymbol = null;
                     updateStatus("Waiting for opponent...");
                 } else {
                     game.disconnectPlayer(playerName);
@@ -316,7 +315,6 @@ public class MorpionClientGUI extends JFrame implements MorpionCallback {
             try {
                 game.resetGame();
                 resetBoard();
-                playerSymbol = null;
                 updateStatus("Waiting for new opponent...");
             } catch (RemoteException e) {
                 JOptionPane.showMessageDialog(this, "Error resetting game", "Network Error", JOptionPane.ERROR_MESSAGE);
